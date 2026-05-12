@@ -1,0 +1,49 @@
+# =============================================================================
+# Smart Parking - .gitignore
+# =============================================================================
+
+# --- Secrets & Environment ---
+# NEVER commit these; they may contain real API keys.
+.env
+.env.local
+.env.*.local
+
+# runtime-config.json may contain a live API key; keep it local only.
+runtime-config.json
+
+# --- TLS / SSL Certificates ---
+# Self-signed certs generated for local HTTPS; never commit private keys.
+certs/
+
+# --- Local Server State ---
+.caddy-config/
+.caddy-data/
+https-server.log
+
+# --- LaTeX Build Artifacts ---
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.toc
+docs/*.fls
+docs/*.fdb_latexmk
+docs/*.synctex.gz
+# Keep the source .tex and compiled .pdf, exclude build noise.
+# docs/*.pdf
+
+# --- OS & Editor Noise ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+.idea/
+.vscode/settings.json
+
+# --- Node (if ever added) ---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# --- Browser local storage exports / test data ---
+data/*.json

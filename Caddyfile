@@ -1,0 +1,10 @@
+https://localhost:8447, https://127.0.0.1:8447 {
+	tls certs/smartparking-local.pem certs/smartparking-local-key.pem
+	root * .
+	@hidden path /.*
+	respond @hidden "Not found" 404
+	file_server
+	header {
+		Cache-Control "no-store"
+	}
+}

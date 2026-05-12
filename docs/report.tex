@@ -1,0 +1,257 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{csquotes}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  columns=fullflexible
+}
+
+\title{Smart Parking Availability Prediction using Explainable AI}
+\author{AI Foundations for Engineers}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Abstract}
+\label{sec:abstract}
+
+This project presents an explainable AI system for predicting short-term parking availability near a selected area. The model combines live parking-slot status, historical parking logs, nearby-place activity, route context, time features, and environmental signals from Google Maps Platform APIs. The system is designed around core syllabus topics from AI Foundations for Engineers, including rational agents, search algorithms, decision tree learning, Bayesian learning, instance-based learning, neural-network concepts, and responsible AI.
+
+\section{Introduction}
+\label{sec:introduction}
+
+Finding parking in busy urban areas is a dynamic problem. Parking availability changes according to time, nearby commercial activity, weather, road access, and user behavior. A static parking display cannot reliably answer whether a slot will still be available after the user reaches the area. The goal of this project is to build an AI agent that estimates near-future parking availability and explains its prediction to the user.
+
+\section{Problem Statement}
+\label{sec:problem-statement}
+
+The problem is to predict the number of parking slots likely to remain available in a short time horizon, such as 30 minutes, using data from the parking system and external APIs. The model must work even when some API signals are unavailable.
+
+\section{Objectives}
+\label{sec:objectives}
+
+\begin{itemize}
+  \item Build a working smart parking web application.
+  \item Keep the AI model separated from the user interface.
+  \item Use Google Maps Platform APIs as external signal sources.
+  \item Convert API responses into useful AI features.
+  \item Implement explainable AI concepts from the syllabus.
+  \item Display prediction confidence and responsible AI explanations.
+\end{itemize}
+
+\section{System Architecture}
+\label{sec:architecture}
+
+The system has three main layers:
+
+\begin{description}
+  \item[User interface] Allows users and admins to interact with parking areas, slots, reservations, and predictions.
+  \item[Data layer] Stores parking areas, slots, logs, reservations, and simulated sensor states.
+  \item[AI layer] Extracts features, runs explainable prediction models, and returns a recommendation with confidence.
+\end{description}
+
+\begin{lstlisting}
+User Interface
+  -> Parking Data
+  -> Feature Extraction
+  -> Explainable AI Model
+  -> Responsible AI Explanation
+  -> Prediction Output
+\end{lstlisting}
+
+\section{Google API Signal Sources}
+\label{sec:api-sources}
+
+The project key has 33 Google Maps Platform APIs enabled. The AI design uses relevant APIs as optional signal sources. Not every API should be called for every prediction because that would waste quota and introduce unnecessary noise.
+
+\begin{table}[h]
+  \centering
+  \caption{Main API signals used for AI prediction}
+  \label{tab:api-signals}
+  \begin{tabular}{p{0.25\textwidth}p{0.34\textwidth}p{0.29\textwidth}}
+    \toprule
+    API & Feature & Purpose \\
+    \midrule
+    Places API & Nearby shops and opening hours & Demand estimation \\
+    Weather API & Rain and weather condition & Duration and walking penalty \\
+    Geocoding API & Address to coordinates & Location input \\
+    Distance Matrix API & Travel time & Search cost \\
+    Routes API & Route alternatives & Recommendation cost \\
+    Roads API & Road access & Entrance/accessibility score \\
+    Time Zone API & Local time & Correct peak-hour features \\
+    Air Quality API & AQI & Environmental comfort \\
+    Pollen API & Pollen level & Health comfort signal \\
+    Elevation API & Slope & Walking/accessibility signal \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{AI Foundations Mapping}
+\label{sec:ai-foundations}
+
+\subsection{Rational Agent}
+
+The smart parking predictor is an intelligent agent. Its sensors are API signals, live slot status, history logs, and user location. Its actions are predicting availability, recommending slots, and explaining risk. Its performance measure is the usefulness and accuracy of the prediction.
+
+\subsection{Search Problem}
+
+The parking task can be formulated as a search problem. The initial state is the user's current location and current parking conditions. The goal state is a successful parking decision. Actions include choosing an area, choosing a slot, waiting, or rerouting.
+
+\begin{equation}
+\begin{split}
+  cost ={}& distance + travelTime + occupancyRisk \\
+          &+ demandRisk + weatherPenalty - confidenceBonus
+\end{split}
+\end{equation}
+
+An A-star style heuristic can rank the best parking option using this cost.
+
+\subsection{Decision Tree Learning}
+
+The decision tree classifies demand into low, moderate, high, or very high risk.
+
+\begin{lstlisting}
+IF live occupancy >= 82%
+  THEN Very high demand
+ELSE IF nearby demand is high AND occupancy is medium
+  THEN High demand
+ELSE IF historical pressure is high
+  THEN High demand
+ELSE IF demand or occupancy is moderate
+  THEN Moderate demand
+ELSE
+  THEN Low demand
+\end{lstlisting}
+
+\subsection{Bayesian Learning}
+
+The Bayesian model estimates parking pressure from evidence:
+
+\begin{equation}
+  P(highPressure \mid peakHour, nearbyDemand, weather, history)
+\end{equation}
+
+This makes the model suitable for uncertain real-world conditions.
+
+\subsection{Instance-Based Learning}
+
+Instance-based learning compares the current case with similar historical cases. For example, if the current case is Saturday evening with restaurants nearby and rainy weather, the model can compare it with similar past records and use their average occupancy trend.
+
+\subsection{Neural Network Concept}
+
+The project uses a single-layer sigmoid score:
+
+\begin{equation}
+  neuralScore = \frac{1}{1 + e^{-z}}
+\end{equation}
+
+\begin{equation}
+  z = b + w_1x_1 + w_2x_2 + w_3x_3 + w_4x_4 + w_5x_5
+\end{equation}
+
+The features include live occupancy, nearby demand, historical pressure, weekend flag, and peak-hour flag.
+
+\section{Prediction Model}
+\label{sec:prediction-model}
+
+The final prediction can be represented as an ensemble:
+
+\begin{equation}
+\begin{split}
+predictedOccupancy ={}& 0.35(liveOccupancy) + 0.20(nearbyDemand)\\
+&+ 0.15(historicalPressure) + 0.10(weatherImpact)\\
+&+ 0.10(routeAccessCost) + 0.05(bayesianPressure)\\
+&+ 0.05(instancePressure)
+\end{split}
+\end{equation}
+
+The output is converted into predicted available slots, occupancy percentage, risk label, demand label, confidence, and recommended slots.
+
+\section{Responsible AI}
+\label{sec:responsible-ai}
+
+The project follows responsible AI principles by showing confidence and explanation instead of only showing a prediction. The interface should tell users whether live API data or fallback local data was used. It should avoid false certainty and should not store unnecessary precise user-location history.
+
+\section{Implementation}
+\label{sec:implementation}
+
+The AI model is implemented separately from the website UI in:
+
+\begin{lstlisting}
+js/ai/parking-availability-ai.js
+\end{lstlisting}
+
+The website imports the AI model and displays the prediction in the user dashboard.
+
+\section{Testing and Evaluation}
+\label{sec:testing}
+
+The project can be evaluated using:
+
+\begin{itemize}
+  \item Syntax checks for JavaScript modules.
+  \item Demo data with simulated sensor updates.
+  \item Comparison between predicted availability and actual later slot state.
+  \item Error metrics such as mean absolute error.
+  \item User-facing checks for explanation clarity.
+\end{itemize}
+
+\section{Limitations}
+\label{sec:limitations}
+
+\begin{itemize}
+  \item Exact Google Maps \enquote{Popular times} data is not available through public APIs.
+  \item API calls should be moved to a backend proxy for production security.
+  \item More real parking logs are needed for stronger model evaluation.
+  \item Predictions are estimates and not guarantees.
+\end{itemize}
+
+\section{Future Work}
+\label{sec:future-work}
+
+Future improvements include adding Weather API signals, Air Quality signals, Pollen signals, Routes API travel cost, Roads API access scoring, KNN-based historical comparison, backend API security, persistent cloud storage, and model monitoring.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+This project demonstrates how a smart parking system can use explainable AI to predict parking availability. It connects practical web development with syllabus concepts including intelligent agents, search algorithms, decision tree learning, Bayesian learning, instance-based learning, neural scoring, and responsible AI.
+
+\begin{thebibliography}{9}
+
+\bibitem{russellnorvig}
+Stuart Russell and Peter Norvig.
+\textit{Artificial Intelligence: A Modern Approach}.
+Pearson, 4th edition, 2020.
+
+\bibitem{mitchell}
+Tom M. Mitchell.
+\textit{Machine Learning}.
+McGraw-Hill, 1997.
+
+\bibitem{nasscom}
+NASSCOM.
+\textit{Responsible AI Architect's Guide: Responsible AI Best Practices}.
+
+\bibitem{melaniemitchell}
+Melanie Mitchell.
+\textit{Artificial Intelligence: A Guide for Thinking Humans}.
+Farrar, Straus and Giroux, 2019.
+
+\end{thebibliography}
+
+\end{document}
