@@ -112,7 +112,7 @@ Existing work confirms that parking prediction is a valid AI/ML problem. Most sy
 
 **Gap Addressed By This Project**
 
-This project combines live slot state, historical logs, nearby place demand, route/access context, weather/environment signals, and explainable AI scoring to produce both prediction and recommendation.
+This project combines live slot state, historical logs, nearby place demand, route/access context, weather/environment signals, and explainable AI scoring to produce an area-level availability prediction with confidence and explanation.
 
 **Speaker Notes**
 
@@ -128,7 +128,7 @@ The main gap is the combination of practical usability and explainability. A use
 - AI/ML is needed for:
   - Pattern recognition from time and historical behavior
   - Data-driven prediction of near-future availability
-  - Slot recommendation using search-style scoring
+  - Search-style ranking of nearby parking areas by predicted availability and route cost
   - Confidence and explanation generation
   - Fallback prediction when some APIs are unavailable
 
@@ -144,8 +144,8 @@ The project uses explainable AI rather than a single black-box model. This is im
 
 | Paradigm | Project Mapping | Suitability |
 | --- | --- | --- |
-| Intelligent Agent | Observes parking state, APIs, location, and history; acts by predicting and recommending | Fits AI agent concepts from Unit 1 |
-| Search / Optimization | Ranks parking areas and free slots using route/access and occupancy cost | Helps choose the most suitable slot |
+| Intelligent Agent | Observes parking state, APIs, location, and history; acts by predicting area-level availability and explaining the result | Fits AI agent concepts from Unit 1 |
+| Search / Optimization | Ranks nearby parking areas using route/access cost and predicted occupancy | Helps the driver pick a parking area with lower availability risk |
 | Classification | Decision tree classifies risk as low, medium, or high | Easy to explain in PPT/demo |
 | Probability / Bayesian Learning | Bayesian pressure model estimates occupancy pressure from evidence | Handles uncertainty from incomplete signals |
 | Instance-Based Learning | KNN-style comparison with previous parking cases | Learns from similar past situations |
@@ -244,9 +244,9 @@ User Interface
        -> Bayesian Pressure
        -> Instance-Based Learning
        -> Neural-Style Score
-       -> Search-Based Slot Recommendation
+       -> Search-Based Parking Area Ranking
   -> Responsible AI Explanation
-  -> User Prediction and Recommended Slots
+  -> Area-Level Availability Prediction with Confidence and Explanation
 ```
 
 ## Optional Backup Slide: Current Project Structure
