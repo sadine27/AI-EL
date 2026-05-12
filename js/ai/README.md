@@ -7,7 +7,6 @@ This folder contains the standalone AI model used by the website. The UI imports
 - `parking-availability-ai.js`: public entry point used by the website.
 - `google-signals.js`: Google Maps Platform signal collector and 33-API catalog.
 - `feature-extractor.js`: converts app data and API responses into numeric model features.
-- `search-model.js`: slot recommendation using heuristic search-style scoring.
 - `decision-tree-model.js`: explainable risk classification.
 - `bayesian-model.js`: probability-style pressure estimate from evidence.
 - `instance-learning-model.js`: K-nearest-neighbor style historical comparison.
@@ -34,7 +33,7 @@ This keeps the project honest: the AI uses every enabled API as part of the desi
 ## Syllabus Concepts Used
 
 - Unit 1: intelligent agent, rational decision-making, acting humanly, thinking rationally.
-- Unit 2: search/problem solving through slot ranking and route/access cost.
+- Unit 2: search/problem solving through parking-area comparison and route/access cost.
 - Unit 3: decision tree, Bayesian learning, instance-based learning, neural score.
 - Unit 5: responsible AI through confidence, source labels, fallback behavior, and explicit limitations.
 
@@ -49,6 +48,6 @@ import {
 } from "./ai/parking-availability-ai.js";
 ```
 
-`buildParkingAvailabilityPrediction(area, slots, logs, options)` returns predicted availability, risk, confidence, model breakdown, API explanation, and suggested slots.
+`buildParkingAvailabilityPrediction(area, slots, logs, options)` returns predicted availability, risk, confidence, model breakdown, and API explanation. It does not return or reserve a driver-specific spot.
 
 `fetchNearbyPlacesDemand(area, options)` is kept for compatibility with the website, but now returns the broader Google Maps Platform signal object.

@@ -80,7 +80,7 @@ The problem is not only to show currently free slots. A driver needs to know whe
 
 **Practical Scenario**
 
-A driver near a mall or college can view nearby parking areas, receive a recommended slot, and see an explainable prediction of availability risk before reserving or navigating.
+A driver near a mall or college can view nearby parking areas and see an explainable area-level prediction of availability risk before navigating to one.
 
 **Speaker Notes**
 
@@ -105,7 +105,7 @@ Existing work confirms that parking prediction is a valid AI/ML problem. Most sy
 
 - Existing approaches often require large real-world sensor datasets.
 - Many models predict occupancy but do not clearly explain why.
-- Some solutions focus on zones or road segments instead of usable slot recommendations.
+- Some solutions focus on zones or road segments and still cannot guarantee real-time individual-spot availability.
 - Exact Google Maps popular-times data is not available through public APIs.
 - Browser-based prototypes must handle missing APIs and security limitations.
 - Practical systems need both prediction and route-aware parking guidance.
@@ -177,13 +177,13 @@ The project uses an ensemble-style explainable model. Instead of depending on on
 
 **Speaker Notes**
 
-The originality is in integrating course AI concepts with a complete demo application. The system is not just a theoretical model; it includes parking-area creation, slot generation, reservation, navigation, logs, simulated sensor updates, and AI prediction.
+The originality is in integrating course AI concepts with a complete demo application. The system is not just a theoretical model; it includes parking-area creation, slot generation, live status simulation, logs, and AI prediction. The project deliberately removes booking and specific-spot allocation because the model predicts availability rather than confirming a physical spot.
 
 ## Slide 10: Potential Dataset Sources
 
 | Source | Type of Data | Use in Project |
 | --- | --- | --- |
-| Browser/local app data | Parking areas, slots, reservations, entry/exit logs | Live occupancy and history |
+| Browser/local app data | Parking areas, slot status, and occupancy logs | Live occupancy and history |
 | Simulated sensor updates | Occupied/free slot state | Demo-ready real-time changes |
 | Google Places API | Nearby shops, institutions, ratings, review count, opening status | Demand estimation |
 | Google Geocoding/Geolocation APIs | Coordinates and locality context | Area lookup and nearby discovery |
@@ -264,4 +264,3 @@ User Interface
 |-- Caddyfile                      # Optional local HTTPS config
 `-- index.html                     # Static app entry point
 ```
-

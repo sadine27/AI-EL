@@ -44,9 +44,33 @@ function loadState() {
     parsed.parkingAreas = Array.isArray(parsed.parkingAreas)
       ? parsed.parkingAreas.map((area) => normalizeParkingAreaRecord(area))
       : [];
+    clearLegacyUserSlotAssignments(parsed);
     return parsed;
   } catch {
     return defaultState();
+  }
+}
+
+function clearLegacyUserSlotAssignments(nextState) {
+  if (Array.isArray(nextState.users)) {
+    nextState.users.forEach((user) => {
+      delete user.active_reservation_id;
+      user.active_slot_id = null;
+    });
+  }
+
+  if (Array.isArray(nextState.parkingSlots)) {
+    nextState.parkingSlots.forEach((slot) => {
+      delete slot.reserved_by;
+      delete slot.reservation_expiry;
+      if (slot.status === "reserved") {
+        slot.status = "unoccupied";
+        slot.status_source = "system";
+      }
+      if (slot.occupied_by && slot.occupied_by !== "manual") {
+        slot.occupied_by = "manual";
+      }
+    });
   }
 }
 
@@ -91,7 +115,6 @@ export function seedDemoData() {
 
   const adminId = uid("admin");
   const userId = uid("user");
-  const reservedUserId = uid("user");
   const occupiedUserId = uid("user");
   const areaId = uid("area");
   const createdAt = nowIso();
@@ -108,22 +131,6 @@ export function seedDemoData() {
       role: "admin",
       parking_area_id: areaId,
       active_slot_id: null,
-      active_reservation_id: null,
-      created_at: createdAt,
-      is_active: true
-    },
-    {
-      user_id: reservedUserId,
-      email: "reserved@smartparking.demo",
-      password: "",
-      name: "Reserved Demo User",
-      phone: "9000000001",
-      vehicle_number: "KA02CD5678",
-      vehicle_type: "Car",
-      role: "user",
-      parking_area_id: null,
-      active_slot_id: null,
-      active_reservation_id: null,
       created_at: createdAt,
       is_active: true
     },
@@ -138,7 +145,6 @@ export function seedDemoData() {
       role: "user",
       parking_area_id: null,
       active_slot_id: null,
-      active_reservation_id: null,
       created_at: createdAt,
       is_active: true
     },
@@ -153,7 +159,6 @@ export function seedDemoData() {
       role: "user",
       parking_area_id: null,
       active_slot_id: null,
-      active_reservation_id: null,
       created_at: createdAt,
       is_active: true
     }
@@ -179,7 +184,7 @@ export function seedDemoData() {
 
   [
     ["A1", 35, 25, "unoccupied"],
-    ["A2", 50, 25, "reserved"],
+    ["A2", 50, 25, "unoccupied"],
     ["B1", 35, 50, "occupied"],
     ["B2", 50, 50, "unoccupied"]
   ].forEach(([label, x, y, status], index) => {
@@ -192,11 +197,6 @@ export function seedDemoData() {
       column_number: Number(label.slice(1)),
       slot_type: "standard",
       status,
-      reserved_by: status === "reserved" ? reservedUserId : null,
-      reservation_expiry:
-        status === "reserved"
-          ? new Date(Date.now() + 8 * 60 * 1000).toISOString()
-          : null,
       occupied_by: status === "occupied" ? occupiedUserId : null,
       entry_time:
         status === "occupied"
@@ -219,14 +219,8 @@ export function seedDemoData() {
     });
   });
 
-  const reservedSlot = state.parkingSlots.find((slot) => slot.slot_label === "A2");
   const occupiedSlot = state.parkingSlots.find((slot) => slot.slot_label === "B1");
   const freeSlot = state.parkingSlots.find((slot) => slot.slot_label === "A1");
-
-  const reservedUser = state.users.find((user) => user.user_id === reservedUserId);
-  if (reservedUser && reservedSlot) {
-    reservedUser.active_reservation_id = reservedSlot.slot_id;
-  }
 
   const occupiedUser = state.users.find((user) => user.user_id === occupiedUserId);
   if (occupiedUser && occupiedSlot) {
@@ -300,7 +294,6 @@ export function registerAccount(role, payload) {
     role,
     parking_area_id: null,
     active_slot_id: null,
-    active_reservation_id: null,
     created_at: nowIso(),
     is_active: true
   };
@@ -360,7 +353,6 @@ export function ensureWorkspaceAccess() {
       role: "admin",
       parking_area_id: state.parkingAreas.find((area) => area.is_active)?.area_id || null,
       active_slot_id: null,
-      active_reservation_id: null,
       created_at: nowIso(),
       is_active: true
     };
@@ -382,7 +374,6 @@ export function ensureWorkspaceAccess() {
       role: "user",
       parking_area_id: null,
       active_slot_id: null,
-      active_reservation_id: null,
       created_at: nowIso(),
       is_active: true
     };
@@ -521,7 +512,7 @@ export function deregisterParkingArea(adminId, areaId = null) {
   const areaSlots = listSlotsForArea(area.area_id);
   const blockedSlots = areaSlots.filter((slot) => slot.status !== "unoccupied");
   if (blockedSlots.length) {
-    throw new Error("Free every reserved or occupied slot before deregistering the parking area.");
+    throw new Error("Free every occupied slot before deregistering the parking area.");
   }
 
   areaSlots.forEach((slot) => detachSlotDevice(slot));
@@ -558,9 +549,6 @@ export function deleteAccount(userId) {
     if (user.active_slot_id) {
       throw new Error("Confirm exit from the active parking session before deleting the account.");
     }
-    if (user.active_reservation_id) {
-      throw new Error("Clear the active reservation before deleting the account.");
-    }
   }
 
   state.parkingLogs = state.parkingLogs.filter((log) => log.user_id !== user.user_id);
@@ -591,7 +579,7 @@ export function deleteSlot(adminId, slotId) {
     throw new Error("That slot does not belong to your parking area.");
   }
 
-  if (slot.status !== "unoccupied" || slot.reserved_by || slot.occupied_by) {
+  if (slot.status !== "unoccupied" || slot.occupied_by) {
     throw new Error("Set the slot free before deleting it.");
   }
 
@@ -614,10 +602,10 @@ export function deleteAllSlots(adminId) {
 
   const areaSlots = listSlotsForArea(area.area_id);
   const blockedSlot = areaSlots.find(
-    (slot) => slot.status !== "unoccupied" || slot.reserved_by || slot.occupied_by
+    (slot) => slot.status !== "unoccupied" || slot.occupied_by
   );
   if (blockedSlot) {
-    throw new Error("Free every reserved or occupied slot before deleting the full slot inventory.");
+    throw new Error("Free every occupied slot before deleting the full slot inventory.");
   }
 
   const activeLog = state.parkingLogs.find(
@@ -802,86 +790,25 @@ export function listNearbyAreas(position) {
     .sort((a, b) => a.distanceMeters - b.distanceMeters);
 }
 
-export function cleanupExpiredReservations() {
-  // Reservations do not expire automatically.
-}
-
-export function reserveSlot(userId, slotId) {
-  cleanupExpiredReservations();
-
-  const user = state.users.find((item) => item.user_id === userId);
-  const slot = state.parkingSlots.find((item) => item.slot_id === slotId);
-  if (!user || !slot) throw new Error("User or slot not found.");
-  if (user.active_reservation_id) throw new Error("You already have an active reservation.");
-  if (user.active_slot_id) throw new Error("Exit your current slot before reserving another one.");
-  if (slot.status !== "unoccupied") throw new Error("That slot is no longer available.");
-
-  slot.status = "reserved";
-  slot.reserved_by = userId;
-  slot.reservation_expiry = null;
-  slot.status_source = "app";
-  user.active_reservation_id = slot.slot_id;
-  emit();
-  return slot;
-}
-
-export function autoAllocateSlot(userId, areaId, vehicleType = "") {
-  cleanupExpiredReservations();
-
-  const user = state.users.find((item) => item.user_id === userId);
-  if (!user) throw new Error("User not found.");
-  if (user.active_reservation_id) throw new Error("You already have an active reservation.");
-  if (user.active_slot_id) throw new Error("Exit your current slot before auto-allocating another one.");
-
-  const slots = listSlotsForArea(areaId).filter((slot) => slot.status === "unoccupied");
-  if (!slots.length) return null;
-
-  const preferredType =
-    vehicleType === "Bike"
-      ? "compact"
-      : vehicleType === "SUV"
-      ? "large"
-      : "standard";
-
-  const preferred = slots.find((slot) => slot.slot_type === preferredType);
-  const selected = preferred || slots[0];
-  selected.status = "reserved";
-  selected.reserved_by = userId;
-  selected.reservation_expiry = null;
-  selected.status_source = "app";
-  user.active_reservation_id = selected.slot_id;
-  emit();
-  return selected;
-}
-
 export function confirmEntry(userId, candidateSlotId = null) {
-  cleanupExpiredReservations();
-
   const user = state.users.find((item) => item.user_id === userId);
   if (!user) throw new Error("User not found.");
   if (user.active_slot_id) throw new Error("You already have an active parking session.");
 
-  const slotId = user.active_reservation_id || candidateSlotId;
+  const slotId = candidateSlotId;
   if (!slotId) throw new Error("No slot is selected for entry.");
 
   const slot = state.parkingSlots.find((item) => item.slot_id === slotId);
   if (!slot) throw new Error("Slot not found.");
 
-  const allowed =
-    slot.status === "unoccupied" ||
-    (slot.status === "reserved" && slot.reserved_by === userId);
-
-  if (!allowed) throw new Error("That slot cannot be occupied right now.");
+  if (slot.status !== "unoccupied") throw new Error("That slot cannot be occupied right now.");
 
   slot.status = "occupied";
   slot.occupied_by = userId;
   slot.entry_time = nowIso();
-  slot.reserved_by = null;
-  slot.reservation_expiry = null;
   slot.status_source = "app";
 
   user.active_slot_id = slot.slot_id;
-  user.active_reservation_id = null;
 
   const log = {
     log_id: uid("log"),
@@ -935,13 +862,6 @@ export function setSlotStatus(slotId, nextStatus, source = "admin") {
   const slot = state.parkingSlots.find((item) => item.slot_id === slotId);
   if (!slot) throw new Error("Slot not found.");
 
-  if (slot.reserved_by) {
-    const reservedUser = state.users.find((user) => user.user_id === slot.reserved_by);
-    if (reservedUser?.active_reservation_id === slot.slot_id) {
-      reservedUser.active_reservation_id = null;
-    }
-  }
-
   if (slot.occupied_by) {
     const occupiedUser = state.users.find((user) => user.user_id === slot.occupied_by);
     if (occupiedUser?.active_slot_id === slot.slot_id) {
@@ -951,14 +871,10 @@ export function setSlotStatus(slotId, nextStatus, source = "admin") {
 
   if (nextStatus === "unoccupied") {
     slot.status = "unoccupied";
-    slot.reserved_by = null;
-    slot.reservation_expiry = null;
     slot.occupied_by = null;
     slot.entry_time = null;
   } else if (nextStatus === "occupied") {
     slot.status = "occupied";
-    slot.reserved_by = null;
-    slot.reservation_expiry = null;
     slot.occupied_by = slot.occupied_by || "manual";
     slot.entry_time = slot.entry_time || nowIso();
   } else {
@@ -983,7 +899,6 @@ export function areaStats(areaId) {
   return {
     total: slots.length,
     available: slots.filter((slot) => slot.status === "unoccupied").length,
-    reserved: slots.filter((slot) => slot.status === "reserved").length,
     occupied: slots.filter((slot) => slot.status === "occupied").length
   };
 }
@@ -1038,8 +953,6 @@ function buildSlotRecord(area, payload) {
     column_number: Number(payload.columnNumber),
     slot_type: payload.slotType || "standard",
     status: "unoccupied",
-    reserved_by: null,
-    reservation_expiry: null,
     occupied_by: null,
     entry_time: null,
     position_lat: Number(payload.positionLat),

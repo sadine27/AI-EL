@@ -1,10 +1,6 @@
 ﻿import {
   areaStats,
-  autoAllocateSlot,
   autoGenerateSlots,
-  cleanupExpiredReservations,
-  confirmEntry,
-  confirmExit,
   createSlot,
   deleteAllSlots,
   deleteSlot,
@@ -19,7 +15,6 @@
   listAreasForAdmin,
   listSlotsForArea,
   logsForArea,
-  reserveSlot,
   saveParkingArea,
   selectAdminArea,
   setSlotStatus,
@@ -69,7 +64,6 @@ const uiState = {
   adminAreaMode: "register",
   userView: "nearby",
   selectedAreaId: null,
-  pendingAutoSlotId: null,
   areaDraft: null,
   location: {
     permission: "unknown",
@@ -132,7 +126,6 @@ function bootstrap() {
   workspaceAccess = ensureWorkspaceAccess();
 
   subscribe(() => {
-    cleanupExpiredReservations();
     workspaceAccess = ensureWorkspaceAccess();
     syncUiWithStore();
     render();
@@ -163,14 +156,7 @@ function bootstrap() {
     if (user?.active_slot_id) {
       updateActiveParkingDurationDom(user.active_slot_id);
     }
-    if (user?.active_reservation_id) {
-      updateReservationCountdownDom(user.active_reservation_id);
-    }
   }, 1000);
-
-  setInterval(() => {
-    cleanupExpiredReservations();
-  }, 5000);
 }
 
 function navigationMarkerHtml(mode, headingDegrees = 0) {
@@ -314,7 +300,7 @@ function syncUiWithStore() {
   const area = getCurrentAreaForAdmin(admin.user_id);
   if (!area && uiState.adminView !== "area") uiState.adminView = "area";
 
-  const slotId = user.active_slot_id || user.active_reservation_id;
+  const slotId = user.active_slot_id;
   if (slotId) {
     const slot = getSlot(slotId);
     if (slot) {
@@ -564,14 +550,12 @@ function renderAdminOverview(area) {
   const devices = getSnapshot().devices.filter((device) => device.area_id === area.area_id);
   const total = Math.max(stats.total, 1);
   const availablePct = Math.round((stats.available / total) * 100);
-  const reservedPct = Math.round((stats.reserved / total) * 100);
-  const occupiedPct = Math.max(0, 100 - availablePct - reservedPct);
+  const occupiedPct = Math.max(0, 100 - availablePct);
   const ringGradient =
     stats.total > 0
       ? `conic-gradient(
           var(--available) 0 ${availablePct}%,
-          var(--reserved) ${availablePct}% ${availablePct + reservedPct}%,
-          var(--occupied) ${availablePct + reservedPct}% 100%
+          var(--occupied) ${availablePct}% 100%
         )`
       : "conic-gradient(rgba(13, 122, 109, 0.14) 0 100%)";
   const coverageText =
@@ -614,7 +598,6 @@ function renderAdminOverview(area) {
       <div class="dashboard-metrics">
         ${renderDashboardMetric("Total slots", stats.total, "Current mapped inventory", "neutral")}
         ${renderDashboardMetric("Available now", stats.available, `${availablePct}% of current supply`, "available")}
-        ${renderDashboardMetric("Reserved", stats.reserved, "Awaiting arrivals or expiry", "reserved")}
         ${renderDashboardMetric("Occupied", stats.occupied, "Vehicles currently parked", "occupied")}
       </div>
 
@@ -638,7 +621,6 @@ function renderAdminOverview(area) {
             </div>
             <div class="occupancy-legend">
               <div><i class="dot available"></i><span>Available</span><strong>${stats.available}</strong></div>
-              <div><i class="dot reserved"></i><span>Reserved</span><strong>${stats.reserved}</strong></div>
               <div><i class="dot occupied"></i><span>Occupied</span><strong>${stats.occupied}</strong></div>
             </div>
           </div>
@@ -998,7 +980,6 @@ function renderSlotManagement(area) {
       </div>
       <div class="legend">
         <span><i class="dot available"></i>Available</span>
-        <span><i class="dot reserved"></i>Reserved</span>
         <span><i class="dot occupied"></i>Occupied</span>
         <span><i class="dot pending"></i>Draft slot</span>
       </div>
@@ -1153,13 +1134,10 @@ function renderUserDashboard(user) {
     externalSignals: demandCache || {},
     places: demandCache?.places || []
   });
-  const activeReservation = user.active_reservation_id ? getSlot(user.active_reservation_id) : null;
   const activeSlot = user.active_slot_id ? getSlot(user.active_slot_id) : null;
-  const canAllocate = !activeReservation && !activeSlot;
   const selectedSlot = resolveDashboardSlotSelection(
     slots,
     uiState.selectedDashboardSlotId,
-    activeReservation,
     activeSlot
   );
 
@@ -1174,14 +1152,10 @@ function renderUserDashboard(user) {
       <div class="stats-grid">
         ${renderStat("Total Slots", stats.total)}
         ${renderStat("Available", stats.available)}
-        ${renderStat("Reserved", stats.reserved)}
         ${renderStat("Occupied", stats.occupied)}
       </div>
       ${renderPredictionPanel(area, prediction, demandCache)}
-      ${renderUserSessionCard(user, activeReservation, activeSlot)}
-      <div class="button-row">
-        <button class="btn btn-primary" data-action="auto-allocate" data-area-id="${area.area_id}" ${canAllocate ? "" : "disabled"}>Auto Allocate Slot</button>
-      </div>
+      ${renderPredictionOnlyNotice()}
       ${renderBoard(area, slots, user, selectedSlot)}
     </section>
   `;
@@ -1308,46 +1282,11 @@ function renderSettings() {
   `;
 }
 
-function renderUserSessionCard(user, activeReservation, activeSlot) {
-  if (activeSlot) {
-    const minutes = minutesFrom(activeSlot.entry_time);
-    return `
-      <article class="session-card active">
-        <h3>Active Parking</h3>
-        <p>Slot ${activeSlot.slot_label} - Started ${formatDateTime(activeSlot.entry_time)}</p>
-        <p>Duration <span id="active-duration-text" data-entry-time="${activeSlot.entry_time}">${formatDurationMinutes(minutes)}</span></p>
-        <div class="button-row">
-          <button class="btn btn-secondary" data-action="open-navigation" data-slot-id="${activeSlot.slot_id}">Show Slot Navigation</button>
-          <button class="btn btn-danger" data-action="confirm-exit">Confirm Exit</button>
-        </div>
-      </article>
-    `;
-  }
-
-  if (activeReservation) {
-    return `
-      <article class="session-card reserved">
-        <h3>Active Reservation</h3>
-        <p>
-          Slot ${activeReservation.slot_label} is reserved for you.
-          Reservation status
-          <span
-            id="reservation-countdown-text"
-            data-expiry-time="${activeReservation.reservation_expiry}"
-          >${formatReservationCountdown(activeReservation.reservation_expiry)}</span>
-        </p>
-        <div class="button-row">
-          <button class="btn btn-secondary" data-action="open-navigation" data-slot-id="${activeReservation.slot_id}">Open Navigation</button>
-          <button class="btn btn-primary" data-action="confirm-entry" data-slot-id="${activeReservation.slot_id}">Confirm Entry</button>
-        </div>
-      </article>
-    `;
-  }
-
+function renderPredictionOnlyNotice() {
   return `
     <article class="session-card idle">
-      <h3>No Active Session</h3>
-      <p>Reserve a slot or use auto allocation to begin parking.</p>
+      <h3>Prediction Only</h3>
+      <p>The app estimates area-level availability and does not book or assign a specific parking spot.</p>
     </article>
   `;
 }
@@ -1393,7 +1332,6 @@ function renderAdminSlotCard(slot) {
 }
 
 function renderUserSlotCard(slot, user) {
-  const isMine = slot.reserved_by === user.user_id || slot.occupied_by === user.user_id;
   return `
     <article class="slot-card ${slot.status}">
       <div class="row-between">
@@ -1401,12 +1339,6 @@ function renderUserSlotCard(slot, user) {
         <span class="badge ${slot.status}">${slot.status}</span>
       </div>
       <p>${slot.slot_type} - source ${slot.status_source || "system"}</p>
-      ${
-        slot.status === "unoccupied" && !user.active_reservation_id && !user.active_slot_id && !uiState.pendingAutoSlotId
-          ? `<button class="btn btn-primary full-width" data-action="reserve-slot" data-slot-id="${slot.slot_id}">Reserve</button>`
-          : ""
-      }
-      ${isMine ? `<button class="btn btn-secondary full-width" data-action="open-navigation" data-slot-id="${slot.slot_id}">Open Navigation</button>` : ""}
     </article>
   `;
 }
@@ -1464,7 +1396,6 @@ function renderBoard(area, slots, user, selectedSlot = null) {
       </div>
       <div class="legend rect-board__legend">
         <span><i class="dot available"></i>Available</span>
-        <span><i class="dot reserved"></i>Reserved</span>
         <span><i class="dot occupied"></i>Occupied</span>
       </div>
       ${renderDashboardSlotSelectionCard(selectedSlot, user, area)}
@@ -1482,17 +1413,11 @@ function renderDashboardSlotSelectionCard(slot, user, area) {
     `;
   }
 
-  const isMine = slot.reserved_by === user.user_id || slot.occupied_by === user.user_id;
-  const canAllocate =
-    slot.status === "unoccupied" && !user.active_reservation_id && !user.active_slot_id;
-  const showNavigation = isMine || user.active_slot_id === slot.slot_id;
-  const canConfirm = slot.reserved_by === user.user_id && !user.active_slot_id;
-
   return `
     <article class="dashboard-slot-detail">
       <div class="row-between">
         <div>
-          <p class="eyebrow">Selected Slot</p>
+          <p class="eyebrow">Slot Status</p>
           <h3>${slot.slot_label}</h3>
         </div>
         <span class="badge ${slot.status}">${formatSlotStatusLabel(slot.status)}</span>
@@ -1502,11 +1427,7 @@ function renderDashboardSlotSelectionCard(slot, user, area) {
         <span class="detail-pill"><strong>Column:</strong> ${slot.column_number}</span>
         <span class="detail-pill"><strong>Type:</strong> ${slot.slot_type}</span>
       </div>
-      <div class="button-row dashboard-slot-detail__actions">
-        ${canAllocate ? `<button class="btn btn-secondary" data-action="allocate-slot-now" data-slot-id="${slot.slot_id}">Allocate Now</button>` : ""}
-        ${showNavigation ? `<button class="btn btn-outline" data-action="open-navigation" data-slot-id="${slot.slot_id}">${shouldUseWalkingNavigation(user, slot) ? "Show Walking Navigation" : "Open Navigation"}</button>` : ""}
-        ${canConfirm ? `<button class="btn btn-primary" data-action="confirm-entry" data-slot-id="${slot.slot_id}">Confirm Entry</button>` : ""}
-      </div>
+      <p class="muted">For prediction display only; this app does not allocate this spot to a driver.</p>
     </article>
   `;
 }
@@ -1526,7 +1447,6 @@ function renderPredictionPanel(area, prediction, demandCache) {
   const updatedText = demandCache?.updatedAt
     ? `Updated ${formatDateTime(demandCache.updatedAt)}`
     : "Using syllabus model until live shop data is refreshed";
-  const recommended = prediction.recommendedSlots || [];
 
   return `
     <article class="prediction-panel">
@@ -1590,22 +1510,6 @@ function renderPredictionPanel(area, prediction, demandCache) {
           `
           : ""
       }
-      ${
-        recommended.length
-          ? `
-            <div class="prediction-recommendations">
-              <span>Suggested slots</span>
-              ${recommended
-                .map((slot) => `
-                  <button class="prediction-slot" data-action="dashboard-slot-select" data-slot-id="${slot.slot_id}">
-                    ${slot.slot_label}
-                  </button>
-                `)
-                .join("")}
-            </div>
-          `
-          : ""
-      }
       ${demandCache?.error ? `<p class="prediction-error">${demandCache.error}</p>` : ""}
       <div class="button-row">
         <button
@@ -1639,24 +1543,8 @@ function renderDevice(device) {
 function formatSlotStatusLabel(status) {
   const value = String(status || "unoccupied").trim().toLowerCase();
   if (value === "unoccupied") return "Unoccupied";
-  if (value === "reserved") return "Reserved";
   if (value === "occupied") return "Occupied";
   return capitalizeWord(value);
-}
-
-function formatReservationCountdown(expiryTime) {
-  if (!expiryTime || expiryTime === "null" || expiryTime === "undefined") return "No expiry";
-  const expiryMs = new Date(expiryTime).getTime();
-  if (!Number.isFinite(expiryMs)) return "No expiry";
-  const remainingMs = expiryMs - Date.now();
-  if (remainingMs <= 0) return "Expired";
-  const totalSeconds = Math.ceil(remainingMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes > 0) {
-    return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
-  }
-  return `${seconds}s`;
 }
 
 function shouldUseWalkingNavigation(user, slot) {
@@ -1676,7 +1564,7 @@ function openNavigationForSlot(user, slot) {
 }
 
 function inferAreaIdFromUser(user) {
-  const slotId = user.active_slot_id || user.active_reservation_id;
+  const slotId = user.active_slot_id;
   return slotId ? getSlot(slotId)?.area_id || null : null;
 }
 
@@ -3584,7 +3472,7 @@ async function createUserNavigationControllerV2(mapEl, stepsEl, slot) {
       if (relativeAngle > 15 && relativeAngle < 165) {
         return {
           primaryAction: `Slot ${slotId} is on your Right`,
-          secondaryHint: "Pull into the assigned space.",
+          secondaryHint: "Use this only as parking-area guidance.",
           iconType: "right-slight",
           distanceLabel: `${Math.round(distanceMeters)} m`,
           distanceMeters
@@ -3593,7 +3481,7 @@ async function createUserNavigationControllerV2(mapEl, stepsEl, slot) {
       if (relativeAngle < -15 && relativeAngle > -165) {
         return {
           primaryAction: `Slot ${slotId} is on your Left`,
-          secondaryHint: "Pull into the assigned space.",
+          secondaryHint: "Use this only as parking-area guidance.",
           iconType: "left-slight",
           distanceLabel: `${Math.round(distanceMeters)} m`,
           distanceMeters
@@ -4077,8 +3965,8 @@ async function createUserNavigationControllerV2(mapEl, stepsEl, slot) {
         maneuver: { type: "continue", modifier: "straight" },
         instruction:
           navigationMode === "walking"
-            ? `Local Guidance: Walk directly to exact slot ${slot.slot_label}`
-            : `Local Guidance: Pull into your assigned slot ${slot.slot_label}`,
+            ? `Local Guidance: Walk inside the parking area`
+            : `Local Guidance: Enter the parking area and verify a free space`,
         distance: routeState.localGuidanceMeters
       });
     }
@@ -4206,8 +4094,8 @@ async function createUserNavigationControllerV2(mapEl, stepsEl, slot) {
         maneuver: { type: "continue", modifier: "straight" },
         instruction:
           navigationMode === "walking"
-            ? `Local Guidance: Walk directly to exact slot ${slot.slot_label}`
-            : `Local Guidance: Pull into your assigned slot ${slot.slot_label}`,
+            ? `Local Guidance: Walk inside the parking area`
+            : `Local Guidance: Enter the parking area and verify a free space`,
         distance: localGuidanceMeters,
         startMeters: routeMeters
       });
@@ -4715,19 +4603,6 @@ function updateActiveParkingDurationDom(entryTime) {
   durationEl.textContent = formatDurationMinutes(minutesFrom(sourceEntryTime));
 }
 
-function updateReservationCountdownDom(slotId) {
-  const countdownEl = document.querySelector("#reservation-countdown-text");
-  if (!countdownEl) return;
-  const slot = slotId ? getSlot(slotId) : null;
-  const expiryTime = slot?.reservation_expiry || countdownEl.dataset.expiryTime;
-  if (!expiryTime || expiryTime === "null" || expiryTime === "undefined") {
-    countdownEl.textContent = "No expiry";
-    return;
-  }
-  countdownEl.dataset.expiryTime = expiryTime;
-  countdownEl.textContent = formatReservationCountdown(expiryTime);
-}
-
 function renderNavigationSteps(stepsEl, steps, activeStepIndex = 0, arrived = false) {
   if (!stepsEl) return;
   if (arrived) {
@@ -4879,7 +4754,6 @@ function slotRectangleCorners(slot) {
 
 function slotStatusColor(status) {
   if (status === "occupied") return "#cc5533";
-  if (status === "reserved") return "#d4a017";
   return "#2b8f69";
 }
 
@@ -4907,13 +4781,13 @@ function indexToRowLabel(index) {
   return label || "A";
 }
 
-function resolveDashboardSlotSelection(slots, selectedSlotId, activeReservation, activeSlot) {
+function resolveDashboardSlotSelection(slots, selectedSlotId, activeSlot) {
   if (selectedSlotId) {
     const selectedSlot = slots.find((slot) => slot.slot_id === selectedSlotId);
     if (selectedSlot) return selectedSlot;
   }
 
-  return activeSlot || activeReservation || slots[0] || null;
+  return activeSlot || slots[0] || null;
 }
 
 function buildNextSlotSuggestion(area, slots, overrides = {}) {
@@ -5428,44 +5302,6 @@ appEl.addEventListener("click", async (event) => {
         render();
         return;
       }
-      case "reserve-slot": {
-        const user = getWorkspaceDriver();
-        if (uiState.pendingAutoSlotId) {
-          throw new Error("Finish the current allocated-slot flow before reserving a different slot.");
-        }
-        const slot = reserveSlot(user.user_id, target.dataset.slotId);
-        uiState.selectedDashboardSlotId = slot.slot_id;
-        flash(`Slot ${slot.slot_label} reserved.`, "success");
-        return;
-      }
-      case "allocate-slot-now": {
-        const user = getWorkspaceDriver();
-        const slot = getSlot(target.dataset.slotId);
-        if (!slot) throw new Error("Slot not found.");
-        if (user.active_reservation_id || user.active_slot_id || uiState.pendingAutoSlotId) {
-          throw new Error("Finish the current reservation or parking flow before allocating another slot.");
-        }
-        if (slot.status !== "unoccupied") {
-          throw new Error("That slot is no longer available for immediate allocation.");
-        }
-        const reservedSlot = reserveSlot(user.user_id, slot.slot_id);
-        uiState.pendingAutoSlotId = null;
-        uiState.selectedDashboardSlotId = reservedSlot.slot_id;
-        flash(`Slot ${reservedSlot.slot_label} is reserved for 10 minutes.`, "success");
-        return;
-      }
-      case "auto-allocate": {
-        const user = getWorkspaceDriver();
-        if (user.active_reservation_id || user.active_slot_id || uiState.pendingAutoSlotId) {
-          throw new Error("Finish the current reservation or parking flow before auto-allocating another slot.");
-        }
-        const slot = autoAllocateSlot(user.user_id, target.dataset.areaId, user.vehicle_type);
-        if (!slot) throw new Error("No free slot is available right now.");
-        uiState.pendingAutoSlotId = null;
-        uiState.selectedDashboardSlotId = slot.slot_id;
-        flash(`Slot ${slot.slot_label} is reserved for 10 minutes.`, "success");
-        return;
-      }
       case "open-navigation": {
         const slot = getSlot(target.dataset.slotId);
         if (!slot) throw new Error("Slot not found.");
@@ -5502,23 +5338,6 @@ appEl.addEventListener("click", async (event) => {
         uiState.selectedDashboardSlotId = null;
         uiState.navigationChooserSlotId = null;
         flash("All slots deleted from this parking area.", "success");
-        return;
-      }
-      case "confirm-entry": {
-        const user = getWorkspaceDriver();
-        confirmEntry(user.user_id, target.dataset.slotId || uiState.pendingAutoSlotId);
-        uiState.pendingAutoSlotId = null;
-        uiState.selectedDashboardSlotId = target.dataset.slotId || uiState.selectedDashboardSlotId;
-        uiState.navigationChooserSlotId = null;
-        flash("Entry confirmed and parking session started.", "success");
-        return;
-      }
-      case "confirm-exit": {
-        const user = getWorkspaceDriver();
-        confirmExit(user.user_id);
-        uiState.selectedDashboardSlotId = null;
-        uiState.navigationChooserSlotId = null;
-        flash("Exit confirmed and parking session completed.", "success");
         return;
       }
       default:

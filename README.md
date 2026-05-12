@@ -32,10 +32,7 @@ The web application currently includes:
 - Driving aisle gap between slot rows
 - Search-based parking-area lookup
 - Nearby parking-area discovery using browser geolocation or local demo location
-- Reservation with expiry cleanup
-- Auto-allocation
-- In-app route guidance using Leaflet, OpenStreetMap, and OSRM
-- Entry and exit confirmation
+- Prediction-only availability dashboard
 - Parking history
 - Parking logs
 - Manual slot override
@@ -355,7 +352,7 @@ The AI agent chooses actions that improve the driver outcome:
 | Agent | Smart parking AI predictor |
 | Environment | Parking area, roads, nearby shops, weather, users |
 | Sensors | Google APIs, live slot state, logs, browser location |
-| Actuators | Prediction display, slot recommendation, route suggestion |
+| Actuators | Prediction display, area-level availability guidance, demand-risk warning |
 | Performance measure | Correct predictions, reduced search time, clear explanation |
 
 ## Unit 2: Problem Solving by Searching
@@ -651,7 +648,7 @@ Security notes:
 
 ## Access Model
 
-The current version opens directly into a local workspace. There is no login screen, no role picker, and no demo credential display. Hidden local workspace identities are created only so parking-area setup, slot operations, reservation simulation, logs, and navigation can keep using the existing data functions.
+The current version opens directly into a local workspace. There is no login screen, no role picker, and no demo credential display. Hidden local workspace identities are created only so parking-area setup, slot status simulation, logs, and AI prediction can keep using the existing data functions. The project intentionally does not book, reserve, or assign a specific parking spot to a user.
 
 ## Suggested Research Paper Structure
 

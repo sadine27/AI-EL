@@ -60,9 +60,9 @@ The problem is to predict the number of parking slots likely to remain available
 The system has three main layers:
 
 \begin{description}
-  \item[User interface] Allows users and admins to interact with parking areas, slots, reservations, and predictions.
-  \item[Data layer] Stores parking areas, slots, logs, reservations, and simulated sensor states.
-  \item[AI layer] Extracts features, runs explainable prediction models, and returns a recommendation with confidence.
+  \item[User interface] Allows users and admins to interact with parking areas, slot-status displays, simulated occupancy, and predictions.
+  \item[Data layer] Stores parking areas, slots, logs, and simulated sensor states.
+  \item[AI layer] Extracts features, runs explainable prediction models, and returns area-level availability estimates with confidence.
 \end{description}
 
 \begin{lstlisting}
@@ -106,11 +106,11 @@ The project key has 33 Google Maps Platform APIs enabled. The AI design uses rel
 
 \subsection{Rational Agent}
 
-The smart parking predictor is an intelligent agent. Its sensors are API signals, live slot status, history logs, and user location. Its actions are predicting availability, recommending slots, and explaining risk. Its performance measure is the usefulness and accuracy of the prediction.
+The smart parking predictor is an intelligent agent. Its sensors are API signals, live slot status, history logs, and user location. Its actions are predicting availability, showing confidence, and explaining risk. Its performance measure is the usefulness and accuracy of the prediction.
 
 \subsection{Search Problem}
 
-The parking task can be formulated as a search problem. The initial state is the user's current location and current parking conditions. The goal state is a successful parking decision. Actions include choosing an area, choosing a slot, waiting, or rerouting.
+The parking task can be formulated as a search problem. The initial state is the user's current location and current parking conditions. The goal state is selecting a parking area with a higher probability of available space. Actions include choosing an area, waiting, or rerouting.
 
 \begin{equation}
 \begin{split}
@@ -180,7 +180,7 @@ predictedOccupancy ={}& 0.35(liveOccupancy) + 0.20(nearbyDemand)\\
 \end{split}
 \end{equation}
 
-The output is converted into predicted available slots, occupancy percentage, risk label, demand label, confidence, and recommended slots.
+The output is converted into predicted available slots, occupancy percentage, risk label, demand label, and confidence. The system does not book, reserve, or allocate a specific parking spot because model prediction is not the same as physical confirmation.
 
 \section{Responsible AI}
 \label{sec:responsible-ai}

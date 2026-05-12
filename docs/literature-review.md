@@ -38,11 +38,11 @@ The gap is that recurring-pattern systems can become less reliable when current 
 
 Dia, Ahvar, and Lee (2022) evaluated machine learning and neural-network algorithms for predicting parking segment availability in an AIoT-based smart parking environment. The paper is relevant because it connects parking prediction with Internet of Things systems, where sensors can continuously collect real-time parking data. It highlights that short-term availability prediction can reduce search time and fuel consumption.
 
-The idea taken from this paper is the value of treating parking as a continuously observed environment. In AI terms, the parking predictor behaves like an intelligent agent. It observes slot status, historical logs, user location, and context signals; then it acts by recommending a parking area or slot. The project implements this through local app state, simulated sensor updates, parking logs, reservation state, and AI prediction modules.
+The idea taken from this paper is the value of treating parking as a continuously observed environment. In AI terms, the parking predictor behaves like an intelligent agent. It observes slot status, historical logs, user location, and context signals; then it acts by estimating area-level availability and warning about demand risk. The project implements this through local app state, simulated sensor updates, parking logs, and AI prediction modules.
 
-The gap is that AIoT parking systems usually assume sensor-rich infrastructure. That assumption is difficult for a browser-based academic prototype because real ultrasonic, camera, magnetic, or infrared sensors may not be available. The project fills the gap by creating a demo-ready substitute: slot states can be manually updated, reservations are logged, entry/exit actions create history, and simulated sensor updates can change slot availability. This allows the AI model to demonstrate sensor-driven reasoning without requiring physical IoT hardware.
+The gap is that AIoT parking systems usually assume sensor-rich infrastructure. That assumption is difficult for a browser-based academic prototype because real ultrasonic, camera, magnetic, or infrared sensors may not be available. The project fills the gap by creating a demo-ready substitute: slot states can be manually updated, occupancy logs create history, and simulated sensor updates can change slot availability. This allows the AI model to demonstrate sensor-driven reasoning without requiring physical IoT hardware.
 
-Another gap is that segment-level predictions do not always give direct slot-level user guidance. A driver needs a practical answer: where should I park now? To address this, the project includes search-style slot recommendation. Candidate slots are ranked using availability, distance, occupancy pressure, route/access cost, and confidence.
+Another gap is that segment-level predictions can be misunderstood as confirmed ground truth. A driver may see a predicted free count and assume a guaranteed spot exists. To address this, the project now avoids specific-spot assignment and presents prediction as probability-based area guidance. This keeps the system technically honest: it can estimate likely availability, but it does not claim to confirm or hold an individual spot.
 
 ### 4. Feng et al. (2022): Zone-Wise Hybrid Deep Learning
 
@@ -66,7 +66,7 @@ Cao, Choudhury, Winter, and Wang (2024) surveyed artificial intelligence methods
 
 The project takes two main ideas from this survey. First, parking prediction should use multiple feature groups instead of only current occupancy. Second, the system should be evaluated and improved over time using real prediction outcomes. This motivated the feature engineering layer in the project, which can combine live occupancy, historical pressure, nearby place demand, weather, route/access context, and time features.
 
-The gap identified from the survey is that many advanced methods are research-oriented and dataset-oriented. They do not automatically translate into a small, understandable, working system that can be demonstrated in a college project. Our project fills this gap by implementing the full workflow: parking-area setup, slot creation, reservation, navigation, history logs, AI prediction, explanation, and documentation. The result is not just a theoretical model but a working prototype that maps directly to AI course concepts.
+The gap identified from the survey is that many advanced methods are research-oriented and dataset-oriented. They do not automatically translate into a small, understandable, working system that can be demonstrated in a college project. Our project fills this gap by implementing the full workflow: parking-area setup, slot creation, live status simulation, history logs, AI prediction, explanation, and documentation. The result is not just a theoretical model but a working prototype that maps directly to AI course concepts while avoiding unsupported claims about confirmed spot assignment.
 
 ## Consolidated Research Gaps
 
@@ -75,9 +75,9 @@ Across the reviewed papers, the following common gaps were identified:
 | Research Gap | Observed in Literature | Project Response |
 | --- | --- | --- |
 | Dependence on large historical datasets | Deep learning and many ML studies require rich training data | Uses local parking logs when available and fallback context signals when data is limited |
-| Sensor-heavy assumptions | AIoT systems assume physical sensors and continuous infrastructure | Provides manual slot updates, reservation logs, entry/exit logs, and simulated sensor updates |
+| Sensor-heavy assumptions | AIoT systems assume physical sensors and continuous infrastructure | Provides manual slot updates, occupancy logs, and simulated sensor updates |
 | Limited explainability | Accuracy-focused models may not show why a prediction was made | Adds model breakdown, risk label, confidence, source labels, and responsible AI explanation |
-| Zone or segment focus | Some studies predict zone or segment availability but not direct slot choice | Adds slot-level recommendation using search-style scoring |
+| Prediction treated as certainty | Some systems may imply availability can be converted directly into a confirmed spot | Keeps the output at area-level predicted availability and removes booking or specific-spot assignment |
 | Weak handling of missing APIs | Research datasets are usually clean and complete | Implements fallback behavior when Google/API context is unavailable |
 | Limited deployment/security discussion | Academic model papers often do not handle browser-side API risk | Adds `.gitignore`, `.env.example`, runtime config template, and security review |
 | Exact demand signals unavailable | Public APIs do not expose every demand signal such as Google popular-times data | Infers nearby demand from available public features like place count, type, opening state, distance, ratings, and review count |
@@ -86,11 +86,11 @@ Across the reviewed papers, the following common gaps were identified:
 
 The implemented project fills the literature gaps through a practical, explainable, and modular design.
 
-First, the project uses an intelligent-agent model. The environment consists of parking areas, slots, nearby places, roads, weather, users, and historical logs. The sensors are local app state, browser location, simulated sensors, and optional Google Maps Platform signals. The actions are prediction, risk display, slot recommendation, reservation, and route guidance. This maps the research problem to the AI Foundations syllabus while keeping the system understandable.
+First, the project uses an intelligent-agent model. The environment consists of parking areas, slots, nearby places, roads, weather, users, and historical logs. The sensors are local app state, browser location, simulated sensors, and optional Google Maps Platform signals. The actions are prediction, risk display, confidence display, and parking-area guidance. This maps the research problem to the AI Foundations syllabus while keeping the system understandable.
 
 Second, the project uses a hybrid explainable AI approach rather than a single black-box model. The decision tree model gives simple rule-based classification. The Bayesian model handles uncertain evidence. The instance-based model learns from similar previous cases. The neural-style score combines weighted input signals through a sigmoid-style function. The final prediction combines these outputs with live occupancy, nearby demand, history, environment, and route/access pressure.
 
-Third, the project adds route-aware and user-facing recommendation. Many papers focus on predicting occupancy, but a driver also needs a decision. The project ranks slots and parking choices using a search-style cost function that considers availability, predicted occupancy pressure, route/access difficulty, and confidence. This connects parking prediction with AI search and optimization.
+Third, the project keeps the user-facing output aligned with what the model can actually prove. Many papers focus on predicting occupancy, but a driver also needs clarity about uncertainty. The project therefore shows predicted available count, live free count, demand risk, and confidence instead of assigning a spot. This connects parking prediction with responsible AI because the interface avoids false certainty.
 
 Fourth, the project uses map context responsibly. Since exact popular-times data is not available as a normal public API field, the system does not claim to use it directly. Instead, it infers demand from available public signals: nearby places, place types, opening status, ratings, review counts, distance, time, and weather. This keeps the project technically honest while still using real-world context.
 
@@ -107,7 +107,7 @@ The literature shows that parking prediction is a strong AI/ML problem, but a us
 - Simulate sensor behavior when physical IoT infrastructure is unavailable.
 - Use geospatial and nearby-place context to represent local demand.
 - Prefer explainable outputs over opaque high-complexity models.
-- Add slot recommendation, not only occupancy prediction.
+- Remove booking and specific-spot assignment because prediction is not physical confirmation.
 - Handle missing API signals and communicate confidence clearly.
 - Prepare the project safely for GitHub publication.
 

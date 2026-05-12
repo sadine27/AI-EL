@@ -58,7 +58,7 @@ Do not commit `.env`, `runtime-config.json`, or anything in `certs/`. If a real 
 1. Open the app.
 2. Register or select a parking area.
 3. Generate or place parking slots.
-4. Simulate slot occupancy or reserve a slot.
+4. Simulate slot occupancy.
 5. Use the dashboard to inspect AI availability predictions.
 6. Refresh live demand signals after configuring a Google API key.
 

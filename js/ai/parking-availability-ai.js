@@ -6,7 +6,6 @@ import { fetchNearbyPlacesDemand, fetchParkingContextSignals, GOOGLE_MAPS_API_CA
 import { instanceBasedPressure } from "./instance-learning-model.js";
 import { neuralPressureScore } from "./neural-score-model.js";
 import { buildResponsibleExplanation } from "./responsible-ai.js";
-import { recommendSlots } from "./search-model.js";
 
 export { fetchNearbyPlacesDemand, fetchParkingContextSignals, GOOGLE_MAPS_API_CATALOG };
 
@@ -61,7 +60,6 @@ export function buildParkingAvailabilityPrediction(area, slots, logs, options = 
     route: features.route,
     modelBreakdown: modelScores,
     responsibleAi,
-    apiCatalog: features.apiCatalog,
-    recommendedSlots: recommendSlots(area, slots, features)
+    apiCatalog: features.apiCatalog
   };
 }

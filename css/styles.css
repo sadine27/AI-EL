@@ -14,8 +14,6 @@
   --accent-soft: #ffe1ca;
   --danger: #c03d32;
   --danger-soft: #ffe0dc;
-  --reserved: #d4a017;
-  --reserved-soft: #fff3c6;
   --occupied: #cc5533;
   --occupied-soft: #ffe1d8;
   --available: #2b8f69;
@@ -729,13 +727,6 @@ textarea {
   color: #15543c;
 }
 
-.map-pin.reserved,
-.badge.reserved,
-.slot-card.reserved {
-  background: var(--reserved-soft);
-  color: #7a5a08;
-}
-
 .map-pin.occupied,
 .badge.occupied,
 .slot-card.occupied {
@@ -858,20 +849,12 @@ textarea {
   background: linear-gradient(180deg, rgba(224, 248, 235, 0.96), rgba(207, 240, 223, 0.94));
 }
 
-.rect-board__slot--reserved {
-  background: linear-gradient(180deg, rgba(255, 246, 214, 0.96), rgba(251, 236, 180, 0.94));
-}
-
 .rect-board__slot--occupied {
   background: linear-gradient(180deg, rgba(255, 227, 214, 0.96), rgba(247, 205, 184, 0.94));
 }
 
 .rect-board__slot--unoccupied .rect-board__slot-status {
   background: rgba(255, 255, 255, 0.78);
-}
-
-.rect-board__slot--reserved .rect-board__slot-status {
-  background: rgba(122, 90, 8, 0.12);
 }
 
 .rect-board__slot--occupied .rect-board__slot-status {
@@ -999,10 +982,6 @@ textarea {
   background: var(--available);
 }
 
-.dot.reserved {
-  background: var(--reserved);
-}
-
 .dot.occupied {
   background: var(--occupied);
 }
@@ -1047,10 +1026,6 @@ textarea {
 
 .session-card.active {
   background: linear-gradient(135deg, rgba(224, 247, 240, 0.92), rgba(255, 255, 255, 0.95));
-}
-
-.session-card.reserved {
-  background: linear-gradient(135deg, rgba(255, 246, 212, 0.92), rgba(255, 255, 255, 0.95));
 }
 
 .session-card.pending {
@@ -1574,10 +1549,6 @@ textarea:focus {
   background: linear-gradient(180deg, rgba(223, 245, 235, 0.96), rgba(255, 255, 255, 0.88));
 }
 
-.metric-card--reserved {
-  background: linear-gradient(180deg, rgba(255, 243, 198, 0.96), rgba(255, 255, 255, 0.88));
-}
-
 .metric-card--occupied {
   background: linear-gradient(180deg, rgba(255, 225, 216, 0.96), rgba(255, 255, 255, 0.88));
 }
@@ -1749,11 +1720,6 @@ textarea:focus {
 .dashboard-cell--unoccupied {
   background: linear-gradient(180deg, rgba(223, 245, 235, 0.98), rgba(233, 249, 241, 0.86));
   color: #0f5b40;
-}
-
-.dashboard-cell--reserved {
-  background: linear-gradient(180deg, rgba(255, 243, 198, 0.98), rgba(255, 249, 225, 0.9));
-  color: #7a5a08;
 }
 
 .dashboard-cell--occupied {
