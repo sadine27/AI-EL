@@ -1,192 +1,145 @@
-# Smart Parking AI — Enhanced C++ + Python Engine
+# Smart Parking AI
 
-A parking availability prediction system using **C++ AI engine** (decision tree, Bayesian, KNN, neural network) with a **Python FastAPI** backend that collects live signals from 33 Google Maps Platform APIs.
+Predicts how easy it is to **park near any location**. You pick a spot (your
+current location or an address), and the app uses an explainable AI engine plus
+live Google Maps Platform signals to estimate:
 
-## Architecture
+- the **probability that nearby parking is occupied**,
+- **how many spots are likely free** (estimated from nearby parking capacity), and
+- a plain-English **AI opinion** explaining *why* and *what to do* (including the
+  best time to arrive).
+
+You never enter slot counts — the app discovers nearby parking and predicts
+occupancy itself.
+
+## How it works
 
 ```
-┌──────────────────────────────────────────────┐
-│                 Docker Container               │
-│                                                │
-│  ┌──────────────┐     ┌───────────────────┐   │
-│  │  C++ Engine    │◄────│  Python FastAPI    │  │
-│  │  (port 5001)   │     │  (port 8080)       │  │
-│  │                │     │                    │  │
-│  │ · Decision Tree│     │ · Places (New)     │  │
-│  │ · Bayesian     │     │ · Weather          │  │
-│  │ · KNN          │     │ · Air Quality      │  │
-│  │ · Neural       │     │ · Pollen           │  │
-│  │ · A* Search    │     │ · Geocoding        │  │
-│  │ · Feature Ext  │     │ · Time Zone        │  │
-│  └───────┬────────┘     │ · Elevation        │  │
-│          │              │ · Roads            │  │
-│          │              │ · Routes           │  │
-│          │              │ · Distance Matrix  │  │
-│          │              └────────┬───────────┘  │
-│          │                       │              │
-│          └─────────┬─────────────┘              │
-│                    │                            │
-│           ┌────────▼────────┐                  │
-│           │  Static Frontend │                  │
-│           │  (HTML/CSS/JS)   │                  │
-│           └─────────────────┘                  │
-└────────────────────────────────────────────────┘
+  Your location (GPS or address search)
+        │
+        ▼
+  Python FastAPI backend  ──►  collects live signals from Google Maps Platform
+        │                       (places, parking, weather, air, routes, …)
+        ▼
+  AI engine (pure Python)  ──►  decision tree · naive Bayes · KNN · neural net
+        │                       · A* search · ensemble
+        ▼
+  Result: occupancy probability, estimated free spots, per-lot breakdown,
+          explainable AI opinion + best arrival time
+        │
+        ▼
+  Web dashboard (map + gauge + opinion)
 ```
 
-## AI Models
+The **Python AI engine is canonical** — the app always returns a real,
+explainable result with no build step. A standalone **C++ engine** (same
+concepts) lives in `cpp-engine/` as an optional component for reference; it is
+not required to run the app.
 
-| Model | File | Description |
-|-------|------|-------------|
-| Decision Tree | `cpp-engine/src/decision_tree.cpp` | Rule-based risk classification (Very high / High / Moderate / Low) |
-| Bayesian | `cpp-engine/src/bayesian_model.cpp` | Probabilistic parking pressure using Naive Bayes likelihood |
-| KNN (Instance-based) | `cpp-engine/src/instance_learning.cpp` | Similarity-weighted prediction from historical data |
-| Neural Network | `cpp-engine/src/neural_model.cpp` | Sigmoid-activated weighted sum of all features |
-| A* Search | `cpp-engine/src/search_model.cpp` | Haversine-based parking slot ranking |
+## AI concepts (in `python-api/ai/`)
 
-## Google API Signals
+| Concept | File | Role |
+|--------|------|------|
+| Decision Tree | `ai/decision_tree.py` | Rule-based occupancy risk + readable decision path |
+| Naive Bayes | `ai/bayesian.py` | Posterior probability of a "busy" state |
+| KNN (instance-based) | `ai/knn.py` | Distance-weighted vote over prototype scenarios |
+| Neural network | `ai/neural.py` | Small fixed-weight MLP for non-linear interactions |
+| A* search | `ai/search.py` | Searches future arrival slots for the best time to go |
+| Ensemble + capacity | `ai/engine.py` | Combines models, estimates capacity & free spots |
+| Explainable opinion | `ai/opinion.py` | Turns numbers into a human recommendation |
 
-The Python backend collects from **10 live APIs** concurrently:
-- **Places API (New)** — Nearby shop demand
-- **Weather API** — Rain, visibility, wind
-- **Air Quality API** — AQI and pollution
-- **Pollen API** — Pollen discomfort score
-- **Time Zone API** — Local hour correction
-- **Geocoding API** — Location context
-- **Maps Elevation API** — Slope accessibility
-- **Roads API** — Nearest road check
-- **Distance Matrix API** — Travel distance/time
-- **Routes API** — Route duration/distance
+## Quick start
 
-Plus 23 additional APIs tracked as planned/context signals (total: 33 Google Maps Platform APIs).
-
-## Quick Start
-
-### Prerequisites
-- Docker & Docker Compose
-- Google Maps API key with required APIs enabled
-
-### Run with Docker
+### Option 1 — one-click launcher (recommended)
 
 ```bash
-# Clone and setup
-cd smart-parking-cpp
+# macOS / Linux
+./start.sh
 
-# Set your API key
-export GOOGLE_MAPS_API_KEY="your-api-key"
+# Windows: double-click start.bat
+```
 
-# Build and run
+This creates a local Python environment, starts the app, and opens
+`http://localhost:8080` in your browser. It runs **without** an API key using
+density-based estimates; add a key for live data (below).
+
+### Option 2 — Docker
+
+```bash
+export GOOGLE_MAPS_API_KEY="your-api-key"   # optional
 docker compose up --build
+# open http://localhost:8080
 ```
 
-Then open `http://localhost:8080` in your browser.
+### Live data (optional)
 
-### Run without Docker (development)
+Copy `.env.example` to `.env` and set `GOOGLE_MAPS_API_KEY`. Without a key the
+app still works using estimates; with a key it pulls live signals and real
+nearby-parking locations. Address search works without a key too (it falls back
+to OpenStreetMap).
 
-```bash
-# Python API + fallback (no C++ engine)
-cd python-api
-pip install -r ../requirements.txt
-python main.py
-
-# Frontend: open directly or serve via Python
-# FastAPI serves the frontend at http://localhost:8080
-```
-
-## API Endpoints
+## API endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/health` | GET | Engine status and version |
-| `/api/signals` | GET | List of all 33 Google APIs |
-| `/api/collect-signals` | POST | Collect live Google API signals |
-| `/api/predict` | POST | Full prediction pipeline |
+| `/api/health` | GET | Engine status and whether a key is configured |
+| `/api/geocode?address=` | GET | Resolve an address to coordinates (Google → OSM fallback) |
+| `/api/signals` | GET | Catalog of the 33 Google Maps Platform APIs |
+| `/api/predict` | POST | Location-only prediction (see below) |
 
-### Prediction Request
+### Prediction request
+
+```json
+{ "lat": 19.0760, "lng": 72.8777, "address": "optional label" }
+```
+
+### Prediction response (abridged)
 
 ```json
 {
-  "lat": 19.0760,
-  "lng": 72.8777,
-  "totalSlots": 10,
-  "unavailable": 3
+  "occupancyProbabilityPct": 63,
+  "estimatedCapacity": 350,
+  "estimatedAvailable": 130,
+  "verdict": "Moderate",
+  "riskLabel": "High",
+  "demandLabel": "Heavy",
+  "confidencePct": 71,
+  "parkingLots": [{ "name": "City Garage", "estStalls": 280, "estAvailable": 109, "occupancyPct": 61 }],
+  "modelBreakdown": { "decisionTree": "Very high", "bayes": 68, "knn": 60, "neural": 35, "supplyTightness": 31 },
+  "bestArrival": { "bestHour": 21, "bestOccupancy": 0.53, "improvesIfWait": true },
+  "aiOpinion": { "verdict": "Moderate", "headline": "…", "reasons": ["…"], "recommendation": "…" },
+  "engine": "python-ai"
 }
 ```
 
-### Prediction Response
-
-```json
-{
-  "predictedAvailable": 7,
-  "predictedOccupancyPct": 30,
-  "riskLabel": "Low",
-  "demandLabel": "Moderate",
-  "confidencePct": 72,
-  "modelBreakdown": {
-    "decisionTree": "Low",
-    "decisionTreeScore": 24,
-    "bayes": 38,
-    "instance": 42,
-    "instanceNeighbors": 5,
-    "neural": 35,
-    "environment": 12,
-    "routeAccess": 8
-  },
-  "engine": "cpp"
-}
-```
-
-## File Structure
+## Project structure
 
 ```
 smart-parking-cpp/
-├── Dockerfile
-├── docker-compose.yml
+├── start.sh / start.bat        # one-click launchers
+├── Dockerfile / docker-compose.yml
 ├── requirements.txt
-├── .env.example
-├── README.md
-├── cpp-engine/
-│   ├── CMakeLists.txt
-│   ├── main.cpp                  # HTTP server on port 5001
-│   ├── include/
-│   │   ├── ai_utils.h            # Structs, constants, utilities
-│   │   ├── feature_extractor.h   # Feature vector builder
-│   │   ├── decision_tree.h
-│   │   ├── bayesian_model.h
-│   │   ├── instance_learning.h
-│   │   ├── neural_model.h
-│   │   └── search_model.h
-│   └── src/
-│       ├── ai_utils.cpp
-│       ├── feature_extractor.cpp
-│       ├── decision_tree.cpp
-│       ├── bayesian_model.cpp
-│       ├── instance_learning.cpp
-│       ├── neural_model.cpp
-│       └── search_model.cpp
 ├── python-api/
-│   ├── main.py                   # FastAPI: port 8080
-│   ├── collectors/
-│   │   ├── __init__.py           # 33 API catalog
-│   │   ├── places.py
-│   │   ├── weather.py
-│   │   ├── environment.py
-│   │   ├── geolocation.py
-│   │   └── routing.py
-│   └── models/
-│       ├── features.py
-│       └── prediction.py
-├── frontend/
-│   ├── index.html
-│   ├── css/styles.css
-│   └── js/app.js
-└── scripts/
-    └── setup.sh
+│   ├── main.py                 # FastAPI app (serves frontend + API)
+│   ├── ai/                     # canonical AI engine (this is the brain)
+│   │   ├── decision_tree.py  bayesian.py  knn.py  neural.py
+│   │   ├── search.py  engine.py  opinion.py
+│   ├── collectors/             # Google API collectors + scoring
+│   └── models/                 # legacy fallback helpers (not on the main path)
+├── frontend/                   # map + dashboard (HTML/CSS/JS, Leaflet)
+└── cpp-engine/                 # optional standalone C++ engine (reference)
+```
+
+## Tests
+
+```bash
+cd python-api
+SERVE_FRONTEND=0 python -m pytest tests/ -q
 ```
 
 ## Requirements
 
-- C++17 (GCC 14+)
-- Python 3.12+
-- CMake 3.20+
-- Docker 24+ (for containerized deployment)
-- Google Maps Platform API key (for live signals)
+- Python 3.11+
+- (optional) Docker 24+ for containerised deployment
+- (optional) Google Maps Platform API key for live signals
+- (optional) C++17 + CMake to build the reference `cpp-engine/`
