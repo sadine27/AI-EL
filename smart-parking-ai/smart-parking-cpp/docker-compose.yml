@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  smart-parking-api:
+    build: .
+    container_name: smart-parking-api
+    ports:
+      - "8080:8080"
+      - "5001:5001"
+    environment:
+      # Security: Never hardcode keys in compose files - use .env or secrets
+      - GOOGLE_MAPS_API_KEY=${GOOGLE_MAPS_API_KEY}
+      - CPP_ENGINE_PORT=5001
+      - PYTHON_API_PORT=8080
+      # Security: Restrict CORS origins
+      - ALLOWED_ORIGINS=http://localhost:8080,http://localhost:3000
+      # Security: Restrict allowed hosts
+      - ALLOWED_HOSTS=localhost,127.0.0.1
+      # Security: Disable Swagger docs by default
+      - ENABLE_DOCS=0
+      # C++ Engine CORS origin
+      - CPP_CORS_ORIGIN=http://localhost:8080
+    volumes:
+      - parking_data:/app/data
+    restart: unless-stopped
+    # Security: Drop capabilities
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    # Security: Read-only root filesystem (except for volumes)
+    read_only: true
+    # Security: Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    # Security: No new privileges
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  parking_data:

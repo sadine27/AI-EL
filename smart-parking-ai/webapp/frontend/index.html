@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Parking Predictor</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 24px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            font-size: 28px;
+            color: #1a2a3a;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        h1 span {
+            background: #2c5364;
+            color: white;
+            font-size: 14px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 500;
+        }
+
+        .subtitle {
+            color: #5a6a7a;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-group.full-width {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 4px;
+        }
+
+        input, select {
+            padding: 10px 14px;
+            border: 2px solid #dce4ec;
+            border-radius: 12px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+            background: white;
+            color: #1a2a3a;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #2c5364;
+            box-shadow: 0 0 0 3px rgba(44, 83, 100, 0.15);
+        }
+
+        .btn-predict {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #2c5364, #203a43);
+            color: white;
+            border: none;
+            border-radius: 14px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+            margin-top: 8px;
+        }
+
+        .btn-predict:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(44, 83, 100, 0.4);
+        }
+
+        .btn-predict:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .spinner {
+            display: none;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin: 20px 0;
+            color: #2c5364;
+            font-weight: 500;
+        }
+
+        .spinner.active {
+            display: flex;
+        }
+
+        .spinner-icon {
+            width: 24px;
+            height: 24px;
+            border: 3px solid #dce4ec;
+            border-top: 3px solid #2c5364;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            display: none;
+            background: #fdecea;
+            color: #b71c1c;
+            padding: 12px 16px;
+            border-radius: 12px;
+            margin: 16px 0;
+            font-size: 14px;
+            border-left: 4px solid #b71c1c;
+        }
+
+        .error-message.active {
+            display: block;
+        }
+
+        .result-card {
+            display: none;
+            margin-top: 24px;
+            background: #f8fafc;
+            border-radius: 18px;
+            padding: 24px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .result-card.active {
+            display: block;
+        }
+
+        .result-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .predicted-available {
+            font-size: 32px;
+            font-weight: 700;
+            color: #1a2a3a;
+        }
+
+        .predicted-available small {
+            font-size: 16px;
+            font-weight: 400;
+            color: #5a6a7a;
+        }
+
+        .badge {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .badge.low {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .badge.medium {
+            background: #fff3e0;
+            color: #e65100;
+        }
+
+        .badge.high {
+            background: #fdecea;
+            color: #b71c1c;
+        }
+
+        .badge.unknown {
+            background: #eceff1;
+            color: #546e7a;
+        }
+
+        .progress-section {
+            margin: 16px 0;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            color: #2c3e50;
+            margin-bottom: 6px;
+        }
+
+        .progress-bar-bg {
+            background: #e2e8f0;
+            border-radius: 20px;
+            height: 12px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            border-radius: 20px;
+            background: linear-gradient(90deg, #43a047, #2e7d32);
+            transition: width 0.5s ease;
+            width: 0%;
+        }
+
+        .progress-bar-fill.warning {
+            background: linear-gradient(90deg, #ffa726, #e65100);
+        }
+
+        .progress-bar-fill.danger {
+            background: linear-gradient(90deg, #ef5350, #b71c1c);
+        }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin: 16px 0;
+        }
+
+        .meta-item {
+            background: white;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .meta-item .label {
+            font-size: 12px;
+            color: #5a6a7a;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+
+        .meta-item .value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1a2a3a;
+            margin-top: 2px;
+        }
+
+        .model-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+            font-size: 14px;
+        }
+
+        .model-table th {
+            text-align: left;
+            padding: 10px 12px;
+            background: #e2e8f0;
+            color: #2c3e50;
+            font-weight: 600;
+        }
+
+        .model-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #e2e8f0;
+            color: #1a2a3a;
+        }
+
+        .model-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .model-table .model-name {
+            font-weight: 500;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+            .form-group.full-width {
+                grid-column: 1;
+            }
+            .result-header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .meta-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🅿️ Smart Parking <span>Predictor</span></h1>
+        <p class="subtitle">Enter parking lot details and get AI-powered availability predictions</p>
+
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="latitude">Latitude</label>
+                <input type="number" id="latitude" step="any" placeholder="e.g. 40.7128" value="40.7128">
+            </div>
+            <div class="form-group">
+                <label for="longitude">Longitude</label>
+                <input type="number" id="longitude" step="any" placeholder="e.g. -74.0060" value="-74.0060">
+            </div>
+            <div class="form-group">
+                <label for="totalSlots">Total Slots</label>
+                <input type="number" id="totalSlots" min="1" placeholder="e.g. 100" value="100">
+            </div>
+            <div class="form-group">
+                <label for="unavailableSlots">Unavailable Slots</label>
+                <input type="number" id="unavailableSlots" min="0" placeholder="e.g. 20" value="20">
+            </div>
+            <div class="form-group">
+                <label for="hour">Hour (0-23)</label>
+                <input type="number" id="hour" min="0" max="23" placeholder="e.g. 14" value="14">
+            </div>
+            <div class="form-group">
+                <label for="dayOfWeek">Day of Week</label>
+                <select id="dayOfWeek">
+                    <option value="0">Sunday</option>
+                    <option value="1" selected>Monday</option>
+                    <option value="2">Tuesday</option>
+                    <option value="3">Wednesday</option>
+                    <option value="4">Thursday</option>
+                    <option value="5">Friday</option>
+                    <option value="6">Saturday</option>
+                </select>
+            </div>
+        </div>
+
+        <button class="btn-predict" id="predictBtn">🔮 Predict Availability</button>
+
+        <div class="spinner" id="spinner">
+            <div class="spinner-icon"></div>
+            <span>Analyzing parking data...</span>
+        </div>
+
+        <div class="error-message" id="errorMessage"></div>
+
+        <div class="result-card" id="resultCard">
+            <div class="result-header">
+                <div>
+                    <div class="predicted-available" id="predictedAvailable">-- <small>available slots</small></div>
+                </div>
+                <div>
+                    <span class="badge" id="riskBadge">--</span>
+                </div>
+            </div>
+
+            <div class="progress-section">
+                <div class="progress-label">
+                    <span>Occupancy</span>
+                    <span id="occupancyPercent">0%</span>
+                </div>
+                <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" id="progressFill"></div>
+                </div>
+            </div>
+
+            <div class="meta-grid">
+                <div class="meta-item">
+                    <div class="label">Demand</div>
+                    <div class="value" id="demandLabel">--</div>
+                </div>
+                <div class="meta-item">
+                    <div class="label">Confidence</div>
+                    <div class="value" id="confidencePercent">--%</div>
+                </div>
+            </div>
+
+            <h3 style="margin-top: 20px; font-size: 16px; color: #2c3e50;">Model Breakdown</h3>
+            <table class="model-table" id="modelTable">
+                <thead>
+                    <tr>
+                        <th>Model</th>
+                        <th>Prediction</th>
+                        <th>Confidence</th>
+                    </tr>
+                </thead>
+                <tbody id="modelTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        (function() {
+            const predictBtn = document.getElementById('predictBtn');
+            const spinner = document.getElementById('spinner');
+            const errorMessage = document.getElementById('errorMessage');
+            const resultCard = document.getElementById('resultCard');
+
+            const predictedAvailable = document.getElementById('predictedAvailable');
+            const riskBadge = document.getElementById('riskBadge');
+            const occupancyPercent = document.getElementById('occupancyPercent');
+            const progressFill = document.getElementById('progressFill');
+            const demandLabel = document.getElementById('demandLabel');
+            const confidencePercent = document.getElementById('confidencePercent');
+            const modelTableBody = document.getElementById('modelTableBody');
+
+            function getFormData() {
+                return {
+                    latitude: parseFloat(document.getElementById('latitude').value) || 0,
+                    longitude: parseFloat(document.getElementById('longitude').value) || 0,
+                    total_slots: parseInt(document.getElementById('totalSlots').value) || 0,
+                    unavailable_slots: parseInt(document.getElementById('unavailableSlots').value) || 0,
+                    hour: parseInt(document.getElementById('hour').value) || 0,
+                    day_of_week: parseInt(document.getElementById('dayOfWeek').value) || 0
+                };
+            }
+
+            function validateForm(data) {
+                if (isNaN(data.latitude) || isNaN(data.longitude)) return 'Latitude and longitude must be valid numbers.';
+                if (data.total_slots < 1) return 'Total slots must be at least 1.';
+                if (data.unavailable_slots < 0) return 'Unavailable slots cannot be negative.';
+                if (data.unavailable_slots > data.total_slots) return 'Unavailable slots cannot exceed total slots.';
+                if (data.hour < 0 || data.hour > 23) return 'Hour must be between 0 and 23.';
+                if (data.day_of_week < 0 || data.day_of_week > 6) return 'Invalid day of week.';
+                return null;
+            }
+
+            function setLoading(isLoading) {
+                predictBtn.disabled = isLoading;
+                spinner.classList.toggle('active', isLoading);
+                errorMessage.classList.remove('active');
+                if (isLoading) {
+                    resultCard.classList.remove('active');
+                }
+            }
+
+            function showError(msg) {
+                errorMessage.textContent = msg;
+                errorMessage.classList.add('active');
+                resultCard.classList.remove('active');
+            }
+
+            function getRiskLabel(occupancy) {
+                if (occupancy < 50) return { text: 'Low Risk', className: 'low' };
+                if (occupancy < 80) return { text: 'Medium Risk', className: 'medium' };
+                return { text: 'High Risk', className: 'high' };
+            }
+
+            function getDemandLabel(occupancy) {
+                if (occupancy < 30) return 'Low Demand';
+                if (occupancy < 60) return 'Moderate Demand';
+                if (occupancy < 85) return 'High Demand';
+                return 'Very High Demand';
+            }
+
+            function renderResult(data) {
+                // data expected: { predictedAvailable, occupancyPercent, riskLabel, demandLabel, confidencePercent, modelBreakdown }
+                // modelBreakdown: array of { modelName, prediction, confidence }
+
+                const occ = data.occupancyPercent;
+                const risk = getRiskLabel(occ);
+                const demand = getDemandLabel(occ);
+
+                predictedAvailable.innerHTML = `${data.predictedAvailable} <small>available slots</small>`;
+
+                riskBadge.textContent = risk.text;
+                riskBadge.className = 'badge ' + risk.className;
+
+                occupancyPercent.textContent = occ.toFixed(1) + '%';
+                progressFill.style.width = occ + '%';
+                progressFill.className = 'progress-bar-fill';
+                if (occ >= 80) {
+                    progressFill.classList.add('danger');
+                } else if (occ >= 50) {
+                    progressFill.classList.add('warning');
+                }
+
+                demandLabel.textContent = demand;
+                confidencePercent.textContent = data.confidencePercent.toFixed(1) + '%';
+
+                // Model table
+                modelTableBody.innerHTML = '';
+                if (data.modelBreakdown && data.modelBreakdown.length > 0) {
+                    data.modelBreakdown.forEach(m => {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td class="model-name">${m.modelName}</td>
+                            <td>${m.prediction}</td>
+                            <td>${m.confidence.toFixed(1)}%</td>
+                        `;
+                        modelTableBody.appendChild(tr);
+                    });
+                } else {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = '<td colspan="3" style="text-align:center; color:#5a6a7a;">No model breakdown available</td>';
+                    modelTableBody.appendChild(tr);
+                }
+
+                resultCard.classList.add('active');
+            }
+
+            async function handlePredict() {
+                const data = getFormData();
+                const validationError = validateForm(data);
+                if (validationError) {
+                    showError(validationError);
+                    return;
+                }
+
+                setLoading(true);
+
+                try {
+                    const response = await fetch('http://localhost:8000/api/predict', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+                    });
+
+                    if (!response.ok) {
+                        let errorText = `Server error: ${response.status}`;
+                        try {
+                            const errData = await response.json();
+                            if (errData.detail) errorText = errData.detail;
+                        } catch (e) {}
+                        throw new Error(errorText);
+                    }
+
+                    const result = await response.json();
+
+                    // Validate response structure
+                    if (typeof result.predictedAvailable !== 'number' ||
+                        typeof result.occupancyPercent !== 'number' ||
+                        typeof result.confidencePercent !== 'number') {
+                        throw new Error('Invalid response format from server.');
+                    }
+
+                    // Ensure modelBreakdown is array
+                    if (!Array.isArray(result.modelBreakdown)) {
+                        result.modelBreakdown = [];
+                    }
+
+                    renderResult(result);
+                } catch (err) {
+                    showError(err.message || 'Failed to get prediction. Please try again.');
+                } finally {
+                    setLoading(false);
+                }
+            }
+
+            predictBtn.addEventListener('click', handlePredict);
+
+            // Allow Enter key to trigger prediction
+            document.querySelectorAll('input, select').forEach(el => {
+                el.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handlePredict();
+                    }
+                });
+            });
+        })();
+    </script>
+</body>
+</html>
