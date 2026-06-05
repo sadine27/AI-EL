@@ -55,6 +55,65 @@
             font-size: 14px;
         }
 
+        .section-title {
+            font-size: 18px;
+            color: #1a2a3a;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .lots-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .lot-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 14px 16px;
+            transition: box-shadow 0.2s;
+        }
+
+        .lot-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+
+        .lot-name {
+            font-weight: 700;
+            color: #1a2a3a;
+            font-size: 15px;
+            margin-bottom: 6px;
+        }
+
+        .lot-detail {
+            font-size: 13px;
+            color: #5a6a7a;
+            margin-bottom: 2px;
+        }
+
+        .lot-detail span {
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        .lots-loading, .lots-error {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 20px;
+            color: #5a6a7a;
+            font-size: 14px;
+        }
+
+        .lots-error {
+            color: #b71c1c;
+            background: #fdecea;
+            border-radius: 12px;
+            border-left: 4px solid #b71c1c;
+        }
+
         .form-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -333,6 +392,9 @@
             .meta-grid {
                 grid-template-columns: 1fr;
             }
+            .lots-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -340,6 +402,11 @@
     <div class="container">
         <h1>🅿️ Smart Parking <span>Predictor</span></h1>
         <p class="subtitle">Enter parking lot details and get AI-powered availability predictions</p>
+
+        <div class="section-title">Available Parking Lots</div>
+        <div class="lots-grid" id="lotsGrid">
+            <div class="lots-loading">Loading parking lots...</div>
+        </div>
 
         <div class="form-grid">
             <div class="form-group">
@@ -432,6 +499,7 @@
 
     <script>
         (function() {
+            const lotsGrid = document.getElementById('lotsGrid');
             const predictBtn = document.getElementById('predictBtn');
             const spinner = document.getElementById('spinner');
             const errorMessage = document.getElementById('errorMessage');
@@ -444,6 +512,47 @@
             const demandLabel = document.getElementById('demandLabel');
             const confidencePercent = document.getElementById('confidencePercent');
             const modelTableBody = document.getElementById('modelTableBody');
+
+            // Fetch and render parking lots
+            async function loadLots() {
+                lotsGrid.innerHTML = '<div class="lots-loading">Loading parking lots...</div>';
+                try {
+                    const response = await fetch('http://127.0.0.1:8000/api/lots');
+                    if (!response.ok) {
+                        throw new Error(`Server error: ${response.status}`);
+                    }
+                    const lots = await response.json();
+                    if (!Array.isArray(lots) || lots.length === 0) {
+                        lotsGrid.innerHTML = '<div class="lots-loading">No parking lots available.</div>';
+                        return;
+                    }
+                    lotsGrid.innerHTML = '';
+                    lots.forEach(lot => {
+                        const card = document.createElement('div');
+                        card.className = 'lot-card';
+                        const name = lot.name || 'Unnamed Lot';
+                        const totalSlots = lot.total_slots !== undefined ? lot.total_slots : 'N/A';
+                        const lat = lot.lat !== undefined ? lot.lat : 'N/A';
+                        const lng = lot.lng !== undefined ? lot.lng : 'N/A';
+                        // Build with textContent (no innerHTML) to prevent XSS from DB-sourced values.
+                        const nameEl = document.createElement('div');
+                        nameEl.className = 'lot-name';
+                        nameEl.textContent = name;
+                        const slotsEl = document.createElement('div');
+                        slotsEl.className = 'lot-detail';
+                        slotsEl.textContent = `Total Slots: ${totalSlots}`;
+                        const coordEl = document.createElement('div');
+                        coordEl.className = 'lot-detail';
+                        coordEl.textContent = `Lat: ${lat} / Lng: ${lng}`;
+                        card.append(nameEl, slotsEl, coordEl);
+                        lotsGrid.appendChild(card);
+                    });
+                } catch (err) {
+                    lotsGrid.innerHTML = `<div class="lots-error">Failed to load parking lots: ${err.message}</div>`;
+                }
+            }
+
+            document.addEventListener('DOMContentLoaded', loadLots);
 
             function getFormData() {
                 return {
@@ -495,9 +604,6 @@
             }
 
             function renderResult(data) {
-                // data expected: { predictedAvailable, occupancyPercent, riskLabel, demandLabel, confidencePercent, modelBreakdown }
-                // modelBreakdown: array of { modelName, prediction, confidence }
-
                 const occ = data.occupancyPercent;
                 const risk = getRiskLabel(occ);
                 const demand = getDemandLabel(occ);
@@ -519,7 +625,6 @@
                 demandLabel.textContent = demand;
                 confidencePercent.textContent = data.confidencePercent.toFixed(1) + '%';
 
-                // Model table
                 modelTableBody.innerHTML = '';
                 if (data.modelBreakdown && data.modelBreakdown.length > 0) {
                     data.modelBreakdown.forEach(m => {
@@ -551,7 +656,7 @@
                 setLoading(true);
 
                 try {
-                    const response = await fetch('http://localhost:8000/api/predict', {
+                    const response = await fetch('http://127.0.0.1:8000/api/predict', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -570,14 +675,12 @@
 
                     const result = await response.json();
 
-                    // Validate response structure
                     if (typeof result.predictedAvailable !== 'number' ||
                         typeof result.occupancyPercent !== 'number' ||
                         typeof result.confidencePercent !== 'number') {
                         throw new Error('Invalid response format from server.');
                     }
 
-                    // Ensure modelBreakdown is array
                     if (!Array.isArray(result.modelBreakdown)) {
                         result.modelBreakdown = [];
                     }
@@ -592,7 +695,6 @@
 
             predictBtn.addEventListener('click', handlePredict);
 
-            // Allow Enter key to trigger prediction
             document.querySelectorAll('input, select').forEach(el => {
                 el.addEventListener('keydown', (e) => {
                     if (e.key === 'Enter') {
