@@ -24,7 +24,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from dotenv import load_dotenv
 
+from ai import predict_occupancy
+
+# Load .env from the current directory and from the project root (one level up
+# from python-api/), so the app finds the key whether started from either place.
 load_dotenv()
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("smart-parking-api")
@@ -125,9 +130,11 @@ SECURITY_HEADERS = {
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
     "Content-Security-Policy": (
         "default-src 'self'; "
-        "script-src 'self'; "
-        "style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data:; "
+        # Leaflet map library is loaded from unpkg; OSM serves the map tiles.
+        "script-src 'self' https://unpkg.com; "
+        "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+        "img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com; "
+        # Geocoding is proxied through our own backend, so connect-src stays 'self'.
         "connect-src 'self'; "
         "form-action 'self'; "
         "base-uri 'self';"
@@ -239,11 +246,8 @@ def redact_api_key(url: str) -> str:
         return str(url)
     return re.sub(r'key=[A-Za-z0-9_-]{20,}', 'key=REDACTED', url)
 
-# Serve static frontend (disabled in tests via SERVE_FRONTEND=0)
-if os.getenv("SERVE_FRONTEND", "1") == "1":
-    frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
-    if os.path.isdir(frontend_path):
-        app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
+# NOTE: the static frontend is mounted at the very bottom of this file, AFTER all
+# /api routes are registered. Mounting at "/" earlier would shadow the API routes.
 
 # Google API key
 CPP_ENGINE_URL = f"http://localhost:{os.getenv('CPP_ENGINE_PORT', '5001')}"
@@ -252,10 +256,11 @@ CPP_ENGINE_URL = f"http://localhost:{os.getenv('CPP_ENGINE_PORT', '5001')}"
 # Pydantic Models with Edge Case Validation
 # ------------------------------------------------------------
 class PredictionRequest(BaseModel):
+    """Location-only request. The engine discovers nearby parking and predicts
+    occupancy itself — the user never enters slot counts."""
     lat: float = Field(default=19.0760, description="Latitude (-90 to 90)")
     lng: float = Field(default=72.8777, description="Longitude (-180 to 180)")
-    totalSlots: int = Field(default=10, ge=1, le=1000, description="Total parking slots (1-1000)")
-    unavailable: int = Field(default=3, ge=0, description="Currently occupied slots")
+    address: str | None = Field(default=None, max_length=300, description="Optional address label")
     hour: int | None = Field(default=None, ge=0, le=23, description="Hour of day (0-23)")
     dayOfWeek: int | None = Field(default=None, ge=0, le=6, description="Day of week (0=Mon, 6=Sun)")
 
@@ -271,14 +276,6 @@ class PredictionRequest(BaseModel):
     def validate_lng(cls, v):
         if v < -180.0 or v > 180.0:
             raise ValueError("Longitude must be between -180 and 180")
-        return v
-
-    @field_validator("unavailable")
-    @classmethod
-    def validate_unavailable(cls, v, info):
-        total = info.data.get("totalSlots", 10)
-        if v > total:
-            raise ValueError(f"unavailable ({v}) cannot exceed totalSlots ({total})")
         return v
 
 class ApiStatus(BaseModel):
@@ -345,7 +342,7 @@ async def collect_signals(request: PredictionRequest):
     center = {"lat": request.lat, "lng": request.lng}
 
     # Import collectors
-    from collectors.places import fetch_nearby_places
+    from collectors.places import fetch_nearby_places, fetch_nearby_parking
     from collectors.weather import fetch_weather
     from collectors.environment import fetch_air_quality, fetch_pollen
     from collectors.geolocation import fetch_geocoding, fetch_timezone, fetch_elevation
@@ -354,6 +351,7 @@ async def collect_signals(request: PredictionRequest):
     # Collect all signals concurrently
     results = await asyncio.gather(
         collect_signal("Places API (New)", fetch_nearby_places(center, GOOGLE_API_KEY)),
+        collect_signal("Parking Search", fetch_nearby_parking(center, GOOGLE_API_KEY)),
         collect_signal("Weather API", fetch_weather(center, GOOGLE_API_KEY)),
         collect_signal("Air Quality API", fetch_air_quality(center, GOOGLE_API_KEY)),
         collect_signal("Pollen API", fetch_pollen(center, GOOGLE_API_KEY)),
@@ -380,6 +378,7 @@ async def collect_signals(request: PredictionRequest):
             catalog.append({**api_entry, "status": "planned"})
 
     places_signal = next((r for r in results if r["name"] == "Places API (New)"), None)
+    parking_signal = next((r for r in results if r["name"] == "Parking Search"), None)
 
     return {
         "source": "google-maps-platform-signals",
@@ -387,6 +386,9 @@ async def collect_signals(request: PredictionRequest):
         "places": (places_signal["data"]["places"]
                    if places_signal and places_signal["status"] == "ready"
                    and places_signal.get("data") else []),
+        "parking": (parking_signal["data"]["parking"]
+                    if parking_signal and parking_signal["status"] == "ready"
+                    and parking_signal.get("data") else []),
         "signals": results,
         "apiCatalog": catalog,
         "activeApiCount": sum(1 for c in catalog if c["status"] in ("ready", "derived", "context")),
@@ -397,18 +399,19 @@ async def collect_signals(request: PredictionRequest):
 @app.post("/api/predict")
 async def predict(request: PredictionRequest):
     """
-    Full prediction pipeline:
-    1. Collect Google API signals
-    2. Send features to C++ engine
-    3. Return prediction with breakdown
-    Handles: API failure, C++ engine timeout, missing data, edge inputs.
+    Location-only prediction pipeline:
+    1. Collect Google API signals around the location (places, parking, weather, ...)
+    2. Build situational features and run the AI engine (decision tree, Bayes,
+       KNN, neural, A* search)
+    3. Estimate nearby parking capacity and predict occupancy + likely free spots
+    Handles API failure and missing data gracefully — always returns a result.
     """
     now = datetime.now(timezone.utc)
     hour = request.hour if request.hour is not None else now.hour
     day_of_week = request.dayOfWeek if request.dayOfWeek is not None else now.weekday()
 
-    # Collect signals
-    signal_data = {"signals": [], "places": []}
+    # Collect signals (best-effort; the engine works on whatever is available).
+    signal_data = {"signals": [], "places": [], "parking": []}
     if GOOGLE_API_KEY:
         try:
             signal_data = await collect_signals(request)
@@ -417,8 +420,9 @@ async def predict(request: PredictionRequest):
         except Exception as e:
             logger.warning(f"Signal collection failed: {sanitize_log(str(e))}")
 
-    # Safely extract features
     places = signal_data.get("places", []) if signal_data else []
+    parking = signal_data.get("parking", []) if signal_data else []
+
     try:
         environment = extract_environment(signal_data.get("signals", []))
     except Exception as e:
@@ -431,107 +435,87 @@ async def predict(request: PredictionRequest):
         logger.warning(f"Route extraction failed: {sanitize_log(str(e))}")
         route = get_default_route()
 
-    # Build request for C++ engine
-    cpp_payload = {
-        "totalSlots": request.totalSlots,
-        "unavailable": request.unavailable,
-        "hour": hour,
-        "dayOfWeek": day_of_week,
-        "places": places,
-        "environment": environment,
-        "route": route
+    ready_count = signal_data.get("readyApiCount", 0) if signal_data else 0
+
+    # Run the canonical Python AI engine.
+    prediction = predict_occupancy(
+        places=places,
+        environment=environment,
+        route=route,
+        parking=parking,
+        hour=hour,
+        day=day_of_week,
+        ready_signals=ready_count,
+    )
+
+    prediction["location"] = {
+        "lat": request.lat,
+        "lng": request.lng,
+        "address": request.address,
     }
-
-    # Call C++ engine
-    prediction = await call_cpp_engine(cpp_payload)
-
-    if prediction is None:
-        # Fallback: Python-side prediction
-        prediction = fallback_prediction(
-            request.totalSlots, request.unavailable,
-            places, environment, route, hour, day_of_week
-        )
-
-    # Add API summary with safe defaults
+    prediction["nearbyPlaces"] = places[:12]
     prediction["apiSummary"] = {
-        "readyCount": signal_data.get("readyApiCount", 0) if signal_data else 0,
+        "readyCount": ready_count,
         "failedCount": signal_data.get("failedApiCount", 0) if signal_data else 0,
-        "totalApis": 33
+        "totalApis": 33,
+        "keyConfigured": bool(GOOGLE_API_KEY),
     }
 
     return prediction
 
 
-async def call_cpp_engine(payload: dict) -> dict | None:
-    """Send prediction request to C++ engine with timeout."""
+@app.get("/api/geocode")
+async def geocode(address: str):
+    """Forward-geocode an address to coordinates.
+
+    Uses Google Geocoding when a key is configured, otherwise falls back to the
+    free OpenStreetMap Nominatim service so address search works out of the box.
+    All requests are proxied here so the browser only ever talks to our origin.
+    """
+    address = (address or "").strip()
+    if not address or len(address) > 300:
+        raise HTTPException(status_code=400, detail="Address must be 1-300 characters")
+
+    # Try Google Geocoding first.
+    if GOOGLE_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    "https://maps.googleapis.com/maps/api/geocode/json",
+                    params={"address": address, "key": GOOGLE_API_KEY},
+                )
+            data = resp.json()
+            if data.get("status") == "OK" and data.get("results"):
+                top = data["results"][0]
+                loc = top["geometry"]["location"]
+                return {
+                    "lat": loc["lat"], "lng": loc["lng"],
+                    "formattedAddress": top.get("formatted_address", address),
+                    "source": "google",
+                }
+        except Exception as e:
+            logger.warning(f"Google geocode failed: {sanitize_log(str(e))}")
+
+    # Fallback: OpenStreetMap Nominatim (no key required).
     try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(f"{CPP_ENGINE_URL}/predict", json=payload)
-            if resp.status_code == 200:
-                body = resp.json()
-                # Validate response has required fields
-                if "predictedAvailable" in body:
-                    return body
-                logger.warning("C++ engine returned incomplete response")
-    except httpx.TimeoutException:
-        logger.warning("C++ engine request timed out after 5s")
-    except httpx.ConnectError:
-        logger.warning("C++ engine is unreachable")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": address, "format": "json", "limit": 1},
+                headers={"User-Agent": "smart-parking-ai/2.0"},
+            )
+        results = resp.json()
+        if isinstance(results, list) and results:
+            top = results[0]
+            return {
+                "lat": float(top["lat"]), "lng": float(top["lon"]),
+                "formattedAddress": top.get("display_name", address),
+                "source": "osm",
+            }
     except Exception as e:
-        logger.warning(f"C++ engine call failed: {sanitize_log(str(e))}")
-    return None
+        logger.warning(f"OSM geocode failed: {sanitize_log(str(e))}")
 
-
-def fallback_prediction(total_slots, unavailable, places, env, route, hour, day):
-    """Python fallback if C++ engine is unavailable or returns invalid data."""
-    from collectors.places import compute_demand_score
-    from collectors.environment import compute_environment_score
-    from collectors.routing import compute_route_score
-
-    n_places = len(places) if places else 0
-    demand_score = compute_demand_score(places, hour, day) if n_places > 0 else 0.28
-    env_score = compute_environment_score(env) if env else 0.0
-    route_score = compute_route_score(route) if route else 0.0
-    live_occ = unavailable / max(total_slots, 1)
-
-    occ_ratio = (
-        live_occ * 0.32 +
-        demand_score * 0.20 +
-        0.14 * 0.14 +  # historical pressure placeholder
-        env_score * 0.09 +
-        route_score * 0.08
-    )
-
-    occ_ratio = max(0.0, min(1.0, occ_ratio))
-    predicted_avail = max(0, min(total_slots,
-        round(total_slots * (1 - occ_ratio))))
-
-    demand_label = "Heavy" if demand_score >= 0.7 else \
-                   "Moderate" if demand_score >= 0.42 else "Light"
-    risk_label = "High" if live_occ >= 0.55 else \
-                 "Moderate" if live_occ >= 0.42 else "Low"
-
-    return {
-        "predictedAvailable": predicted_avail,
-        "predictedOccupancyPct": round(occ_ratio * 100),
-        "riskLabel": risk_label,
-        "demandLabel": demand_label,
-        "demandScore": round(demand_score, 3),
-        "confidencePct": 65,
-        "horizonMinutes": 30,
-        "liveAvailable": total_slots - unavailable,
-        "modelBreakdown": {
-            "decisionTree": risk_label,
-            "decisionTreeScore": round(occ_ratio * 100),
-            "bayes": round(min(demand_score * 0.7 + live_occ * 0.3, 1) * 100),
-            "instance": round(demand_score * 65),
-            "instanceNeighbors": 0,
-            "neural": round(min(live_occ * 65 + demand_score * 35, 100)),
-            "environment": round(env_score * 100),
-            "routeAccess": round(route_score * 100)
-        },
-        "engine": "python-fallback"
-    }
+    raise HTTPException(status_code=404, detail="Could not find that address")
 
 
 def get_default_environment():
@@ -657,6 +641,17 @@ def extract_route(signals):
             logger.warning(f"Route extraction error in {sig.get('name')}: {sanitize_log(str(e))}")
             continue
     return route
+
+
+# ------------------------------------------------------------
+# Serve the static frontend LAST so it doesn't shadow /api routes.
+# (StaticFiles mounted at "/" is a catch-all; it must be registered after the
+# API endpoints above.) Disabled in tests via SERVE_FRONTEND=0.
+# ------------------------------------------------------------
+if os.getenv("SERVE_FRONTEND", "1") == "1":
+    frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+    if os.path.isdir(frontend_path):
+        app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
 
 
 if __name__ == "__main__":

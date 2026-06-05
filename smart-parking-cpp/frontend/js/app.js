@@ -1,356 +1,343 @@
 /**
- * Smart Parking AI — Enhanced Frontend Dashboard
- * Communicates with Python FastAPI backend
- * Includes comprehensive input validation, error handling, and security hardening
+ * Smart Parking AI — frontend.
+ * Location (geolocation or address search) -> /api/predict -> explainable result.
  */
 
 const API_BASE = window.location.origin;
 
-// Default location: Mumbai
-const DEFAULT_LAT = 19.0760;
-const DEFAULT_LNG = 72.8777;
+const state = {
+    lat: null,
+    lng: null,
+    address: null,
+    map: null,
+    marker: null,
+    parkingLayer: null,
+};
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Check engine health on load
+    initMap();
     checkHealth();
 
-    // Set up predict button
-    document.getElementById('predictBtn').addEventListener('click', handlePredict);
-
-    // Set up input validation on blur
-    const inputs = ['lat', 'lng', 'totalSlots', 'unavailable'];
-    inputs.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.addEventListener('blur', () => validateInput(id));
-            el.addEventListener('input', () => clearValidationError(id));
-        }
+    document.getElementById('locateBtn').addEventListener('click', useMyLocation);
+    document.getElementById('searchBtn').addEventListener('click', searchAddress);
+    document.getElementById('predictBtn').addEventListener('click', predict);
+    document.getElementById('addressInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') searchAddress();
     });
-
-    // Security: Prevent clickjacking via frame-busting
-    if (window.top !== window.self) {
-        window.top.location = window.self.location;
-    }
 });
 
-/**
- * Security: Sanitize strings for safe DOM insertion
- * Prevents XSS when displaying user-controlled data
- */
-function sanitizeHTML(str) {
-    if (typeof str !== 'string') return String(str);
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+/* ---------------- Map ---------------- */
+function initMap() {
+    const map = L.map('map', { zoomControl: true }).setView([20, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap',
+    }).addTo(map);
+    state.map = map;
+    state.parkingLayer = L.layerGroup().addTo(map);
+
+    map.on('click', (e) => setLocation(e.latlng.lat, e.latlng.lng, null, true));
 }
 
-/**
- * Security: Validate that a value is a number within range
- */
-function isSafeNumber(value, min, max) {
-    const num = Number(value);
-    if (isNaN(num) || !isFinite(num)) return false;
-    if (min !== undefined && num < min) return false;
-    if (max !== undefined && num > max) return false;
-    return true;
-}
+function setLocation(lat, lng, address, fromMap) {
+    state.lat = lat;
+    state.lng = lng;
+    state.address = address;
 
-/**
- * Input validation helpers
- */
-function validateInput(id) {
-    const el = document.getElementById(id);
-    if (!el) return true;
-
-    const value = el.value.trim();
-    let isValid = true;
-    let errorMsg = '';
-
-    switch (id) {
-        case 'lat': {
-            const lat = parseFloat(value);
-            if (isNaN(lat) || lat < -90 || lat > 90) {
-                errorMsg = 'Latitude must be between -90 and 90';
-                isValid = false;
-            }
-            break;
-        }
-        case 'lng': {
-            const lng = parseFloat(value);
-            if (isNaN(lng) || lng < -180 || lng > 180) {
-                errorMsg = 'Longitude must be between -180 and 180';
-                isValid = false;
-            }
-            break;
-        }
-        case 'totalSlots': {
-            const slots = parseInt(value);
-            if (isNaN(slots) || slots < 1) {
-                errorMsg = 'Total slots must be at least 1';
-                isValid = false;
-            } else if (slots > 1000) {
-                errorMsg = 'Total slots cannot exceed 1000';
-                isValid = false;
-            }
-            break;
-        }
-        case 'unavailable': {
-            const occ = parseInt(value);
-            if (isNaN(occ) || occ < 0) {
-                errorMsg = 'Occupied slots cannot be negative';
-                isValid = false;
-            } else {
-                const totalEl = document.getElementById('totalSlots');
-                const total = parseInt(totalEl ? totalEl.value : 10);
-                if (occ > total) {
-                    errorMsg = `Occupied (${occ}) cannot exceed total slots (${total})`;
-                    isValid = false;
-                }
-            }
-            break;
-        }
-    }
-
-    if (!isValid) {
-        el.style.borderColor = 'var(--danger)';
-        // Use textContent, not innerHTML, to prevent XSS in error messages
-        let errorEl = el.parentElement.querySelector('.field-error');
-        if (!errorEl) {
-            errorEl = document.createElement('small');
-            errorEl.className = 'field-error';
-            errorEl.style.cssText = 'color: var(--danger); font-size: 0.75em; display: block; margin-top: 2px;';
-            el.parentElement.appendChild(errorEl);
-        }
-        errorEl.textContent = errorMsg;  // Safe: textContent, not innerHTML
-    }
-
-    return isValid;
-}
-
-function clearValidationError(id) {
-    const el = document.getElementById(id);
-    if (el) {
-        el.style.borderColor = '';
-        const errorEl = el.parentElement.querySelector('.field-error');
-        if (errorEl) {
-            errorEl.textContent = '';
-        }
-    }
-}
-
-function validateAllInputs() {
-    const ids = ['lat', 'lng', 'totalSlots', 'unavailable'];
-    return ids.every(id => validateInput(id));
-}
-
-/**
- * Health check with timeout
- * Security: Does not expose full API key status publicly
- */
-async function checkHealth() {
-    const statusEl = document.getElementById('engineStatus');
-    const statusText = document.getElementById('statusText');
-
-    try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000);
-
-        const resp = await fetch(`${API_BASE}/api/health`, {
-            signal: controller.signal
+    if (state.marker) {
+        state.marker.setLatLng([lat, lng]);
+    } else {
+        state.marker = L.marker([lat, lng], { draggable: true }).addTo(state.map);
+        state.marker.on('dragend', () => {
+            const p = state.marker.getLatLng();
+            setLocation(p.lat, p.lng, null, false);
         });
-        clearTimeout(timeoutId);
-
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-        const data = await resp.json();
-        if (data.status === 'ok') {
-            statusEl.className = 'status-indicator ready';
-            // Security: Only show engine name and version, not API key status
-            statusText.textContent = `Engine: ${sanitizeHTML(data.engine)} v${sanitizeHTML(data.version)}`;
-        }
-    } catch (err) {
-        statusEl.className = 'status-indicator error';
-        if (err.name === 'AbortError') {
-            statusText.textContent = 'Engine offline (timeout) — running Python fallback only';
-        } else {
-            statusText.textContent = 'Engine offline — running Python fallback only';
-        }
     }
+    if (!fromMap) state.map.setView([lat, lng], 15);
+
+    const label = address ? sanitize(address) : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    document.getElementById('locLine').innerHTML =
+        `Selected: <b>${label}</b> &nbsp;(${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+    document.getElementById('predictBtn').disabled = false;
 }
 
-/**
- * Prediction handler with validation
- */
-async function handlePredict() {
-    // Validate all inputs first
-    if (!validateAllInputs()) {
-        alert('Please fix the validation errors before predicting.');
+/* ---------------- Location inputs ---------------- */
+function useMyLocation() {
+    if (!navigator.geolocation) {
+        toast('Geolocation is not supported by this browser.', true);
         return;
     }
+    const btn = document.getElementById('locateBtn');
+    btn.disabled = true;
+    btn.textContent = 'Locating…';
+    navigator.geolocation.getCurrentPosition(
+        (pos) => {
+            setLocation(pos.coords.latitude, pos.coords.longitude, 'My location');
+            btn.disabled = false;
+            btn.textContent = '📡 Use my location';
+        },
+        (err) => {
+            toast('Could not get your location: ' + err.message, true);
+            btn.disabled = false;
+            btn.textContent = '📡 Use my location';
+        },
+        { enableHighAccuracy: true, timeout: 10000 }
+    );
+}
 
+async function searchAddress() {
+    const input = document.getElementById('addressInput');
+    const address = input.value.trim();
+    if (!address) {
+        toast('Type an address to search.', true);
+        return;
+    }
+    const btn = document.getElementById('searchBtn');
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+        const resp = await fetch(`${API_BASE}/api/geocode?address=${encodeURIComponent(address)}`);
+        if (!resp.ok) {
+            const e = await resp.json().catch(() => ({}));
+            throw new Error(e.detail || `HTTP ${resp.status}`);
+        }
+        const data = await resp.json();
+        setLocation(data.lat, data.lng, data.formattedAddress || address);
+    } catch (err) {
+        toast('Address search failed: ' + err.message, true);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Search';
+    }
+}
+
+/* ---------------- Predict ---------------- */
+async function predict() {
+    if (state.lat == null) {
+        toast('Choose a location first.', true);
+        return;
+    }
     const btn = document.getElementById('predictBtn');
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span> Predicting...';
-
+    btn.innerHTML = '<span class="spinner"></span> Predicting…';
     try {
-        // Gather form inputs with safe parsing
-        const lat = parseFloat(document.getElementById('lat').value) || DEFAULT_LAT;
-        const lng = parseFloat(document.getElementById('lng').value) || DEFAULT_LNG;
-        const totalSlots = parseInt(document.getElementById('totalSlots').value) || 10;
-        const unavailable = parseInt(document.getElementById('unavailable').value) || 0;
-
-        // Safety clamps
-        const clampedLat = Math.max(-90, Math.min(90, lat));
-        const clampedLng = Math.max(-180, Math.min(180, lng));
-        const clampedTotal = Math.max(1, Math.min(1000, totalSlots));
-        const clampedUnavail = Math.max(0, Math.min(clampedTotal, unavailable));
-
-        // Call prediction API with timeout
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
-
+        const t = setTimeout(() => controller.abort(), 20000);
         const resp = await fetch(`${API_BASE}/api/predict`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                lat: clampedLat,
-                lng: clampedLng,
-                totalSlots: clampedTotal,
-                unavailable: clampedUnavail
-            }),
-            signal: controller.signal
+            body: JSON.stringify({ lat: state.lat, lng: state.lng, address: state.address }),
+            signal: controller.signal,
         });
-        clearTimeout(timeoutId);
-
+        clearTimeout(t);
         if (!resp.ok) {
-            const errData = await resp.json().catch(() => ({}));
-            throw new Error(errData.detail || `HTTP ${resp.status}`);
+            const e = await resp.json().catch(() => ({}));
+            throw new Error(e.detail || `HTTP ${resp.status}`);
         }
-
-        const prediction = await resp.json();
-
-        // Check for missing fields and use safe defaults
-        const modelBreakdown = prediction.modelBreakdown || {};
-        const apiSummary = prediction.apiSummary || {};
-
-        displayResults(prediction);
-        displayBreakdown(modelBreakdown);
-        displaySignals(apiSummary);
-
+        renderResult(await resp.json());
     } catch (err) {
-        let errorMsg = 'Prediction failed: ';
-        if (err.name === 'AbortError') {
-            errorMsg += 'Request timed out. The server may be overloaded.';
-        } else {
-            errorMsg += err.message;
-        }
-        alert(errorMsg);
+        toast('Prediction failed: ' + (err.name === 'AbortError' ? 'timed out' : err.message), true);
     } finally {
         btn.disabled = false;
-        btn.innerHTML = '🔮 Predict Availability';
+        btn.innerHTML = '🔮 Predict parking availability';
     }
 }
 
-/**
- * Security: Safe text content setter using textContent
- */
-function setTextSafe(el, value) {
-    if (!el) return;
-    el.textContent = value != null ? String(value) : '--';
+/* ---------------- Render ---------------- */
+function colorFor(pct) {
+    if (pct >= 75) return 'var(--danger)';
+    if (pct >= 55) return 'var(--warning)';
+    if (pct >= 40) return '#e3c44b';
+    return 'var(--success)';
 }
 
-/**
- * Display prediction results with safe defaults
- * Security: Uses textContent, not innerHTML, to prevent XSS
- */
-function displayResults(prediction) {
-    const card = document.getElementById('resultsCard');
-    card.style.display = 'block';
+function renderResult(d) {
+    document.getElementById('results').classList.remove('hidden');
 
-    setTextSafe(document.getElementById('predictedAvailable'), prediction.predictedAvailable);
-    setTextSafe(document.getElementById('predictedOccupancy'), (prediction.predictedOccupancyPct ?? '--') + '%');
-    setTextSafe(document.getElementById('riskLabel'), prediction.riskLabel);
-    setTextSafe(document.getElementById('demandLabel'), prediction.demandLabel);
-    setTextSafe(document.getElementById('confidencePct'), (prediction.confidencePct ?? '--') + '%');
-    setTextSafe(document.getElementById('engine'), prediction.engine);
+    // Gauge
+    const occ = d.occupancyProbabilityPct ?? 0;
+    const gauge = document.getElementById('gauge');
+    gauge.style.setProperty('--val', occ);
+    gauge.style.setProperty('--gauge-color', colorFor(occ));
+    document.getElementById('occNum').textContent = occ + '%';
 
-    // Color-code risk
-    const riskEl = document.getElementById('riskLabel');
-    riskEl.style.color =
-        prediction.riskLabel === 'Very high' || prediction.riskLabel === 'High' ? 'var(--danger)' :
-        prediction.riskLabel === 'Moderate' ? 'var(--warning)' : 'var(--success)';
+    // Hero facts
+    const badge = document.getElementById('verdictBadge');
+    badge.textContent = d.verdict || '—';
+    badge.style.background = colorFor(occ);
+    badge.style.color = occ >= 40 ? '#1b1b1b' : '#06281a';
+
+    setText('availNum', d.estimatedAvailable);
+    setText('capNum', d.estimatedCapacity);
+    setText('demandLabel', d.demandLabel);
+    setText('riskLabel', d.riskLabel);
+    setText('confNum', (d.confidencePct ?? '--') + '%');
+    setText('horizon', d.horizonMinutes ?? 30);
+
+    renderOpinion(d.aiOpinion || {});
+    renderLots(d.parkingLots || [], d.capacitySource);
+    renderBreakdown(d.modelBreakdown || {});
+    renderSignals(d.apiSummary || {});
+    renderParkingMarkers(d.parkingLots || []);
+
+    document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-/**
- * Display model breakdown with safe defaults
- * Security: Uses textContent and createElement, not innerHTML for untrusted data
- */
-function displayBreakdown(breakdown) {
-    if (!breakdown) return;
+function renderOpinion(op) {
+    setText('opinionHeadline', op.headline || '—');
+    const ul = document.getElementById('opinionReasons');
+    ul.innerHTML = '';
+    (op.reasons || []).forEach((r) => {
+        const li = document.createElement('li');
+        li.textContent = r;
+        ul.appendChild(li);
+    });
+    const rec = document.getElementById('opinionRec');
+    rec.innerHTML = '';
+    const b = document.createElement('b');
+    b.textContent = 'Recommendation: ';
+    rec.appendChild(b);
+    rec.appendChild(document.createTextNode(op.recommendation || '—'));
+}
 
-    const card = document.getElementById('breakdownCard');
-    const container = document.getElementById('modelBreakdown');
-    card.style.display = 'block';
-    container.innerHTML = '';
+function renderLots(lots, source) {
+    document.getElementById('capSource').textContent =
+        source === 'live' ? 'from live Google data' : 'estimated from area density';
+    const wrap = document.getElementById('lotList');
+    wrap.innerHTML = '';
+    if (!lots.length) {
+        wrap.innerHTML = '<div class="note">No parking facilities found nearby.</div>';
+        return;
+    }
+    lots.forEach((lot) => {
+        const row = document.createElement('div');
+        row.className = 'lot';
 
+        const left = document.createElement('div');
+        const name = document.createElement('div');
+        name.className = 'lot-name';
+        name.textContent = lot.name || 'Parking';
+        const type = document.createElement('div');
+        type.className = 'lot-type';
+        type.textContent = lot.type || 'parking';
+        left.appendChild(name);
+        left.appendChild(type);
+
+        const right = document.createElement('div');
+        right.className = 'lot-stat';
+        const free = document.createElement('div');
+        free.className = 'lot-free';
+        free.textContent = `${lot.estAvailable} free`;
+        free.style.color = colorFor(lot.occupancyPct ?? 0);
+        const occ = document.createElement('div');
+        occ.className = 'lot-occ';
+        occ.textContent = `${lot.occupancyPct}% full · ~${lot.estStalls} spots`;
+        right.appendChild(free);
+        right.appendChild(occ);
+
+        row.appendChild(left);
+        row.appendChild(right);
+        wrap.appendChild(row);
+    });
+}
+
+function renderBreakdown(b) {
     const items = [
-        { label: 'Decision Tree', value: breakdown.decisionTree },
-        { label: 'DT Score', value: breakdown.decisionTreeScore != null ? breakdown.decisionTreeScore + '%' : '--%' },
-        { label: 'Bayesian', value: breakdown.bayes != null ? breakdown.bayes + '%' : '--%' },
-        { label: 'KNN', value: breakdown.instance != null ? breakdown.instance + '%' : '--%' },
-        { label: 'Neighbors', value: breakdown.instanceNeighbors },
-        { label: 'Neural', value: breakdown.neural != null ? breakdown.neural + '%' : '--%' },
-        { label: 'Environment', value: breakdown.environment != null ? breakdown.environment + '%' : '--%' },
-        { label: 'Route Access', value: breakdown.routeAccess != null ? breakdown.routeAccess + '%' : '--%' },
+        ['Decision Tree', b.decisionTree],
+        ['Tree score', pct(b.decisionTreeScore)],
+        ['Bayesian', pct(b.bayes)],
+        ['KNN', pct(b.knn)],
+        ['Neural', pct(b.neural)],
+        ['Environment', pct(b.environment)],
+        ['Route access', pct(b.routeAccess)],
+        ['Supply tightness', pct(b.supplyTightness)],
     ];
-
-    items.forEach(item => {
-        const div = document.createElement('div');
-        div.className = 'breakdown-item';
-        const labelSpan = document.createElement('span');
-        labelSpan.className = 'label';
-        labelSpan.textContent = item.label;  // Safe: textContent
-        const valueSpan = document.createElement('span');
-        valueSpan.className = 'value';
-        valueSpan.textContent = item.value != null ? String(item.value) : '--';  // Safe: textContent
-        div.appendChild(labelSpan);
-        div.appendChild(valueSpan);
-        container.appendChild(div);
+    const wrap = document.getElementById('breakdown');
+    wrap.innerHTML = '';
+    items.forEach(([k, v]) => {
+        const cell = document.createElement('div');
+        cell.className = 'kv';
+        const kk = document.createElement('div');
+        kk.className = 'k';
+        kk.textContent = k;
+        const vv = document.createElement('div');
+        vv.className = 'v';
+        vv.textContent = v != null ? String(v) : '--';
+        cell.appendChild(kk);
+        cell.appendChild(vv);
+        wrap.appendChild(cell);
     });
 }
 
-/**
- * Display signal summary with safe defaults
- * Security: Uses textContent, not innerHTML, for untrusted data
- */
-function displaySignals(summary) {
-    if (!summary) return;
-
-    const card = document.getElementById('signalsCard');
-    const summaryEl = document.getElementById('signalSummary');
-    const detailEl = document.getElementById('signalDetail');
-    card.style.display = 'block';
-
-    const readyCount = summary.readyCount ?? 0;
-    const failedCount = summary.failedCount ?? 0;
-    const totalApis = summary.totalApis ?? 33;
-    const plannedCount = totalApis - readyCount - failedCount;
-
-    // Build badges safely using createElement instead of innerHTML
-    summaryEl.innerHTML = '';
+function renderSignals(s) {
+    const ready = s.readyCount ?? 0;
+    const failed = s.failedCount ?? 0;
+    const total = s.totalApis ?? 33;
+    const wrap = document.getElementById('signalBadges');
+    wrap.innerHTML = '';
     const badges = [
-        { text: `✅ ${readyCount} ready`, cls: 'ready' },
-        { text: `❌ ${failedCount} failed`, cls: 'error' },
-        { text: `📋 ${plannedCount} planned`, cls: 'planned' },
-        { text: `� Total: ${totalApis} APIs`, cls: 'context' },
+        [`✅ ${ready} live`, 'ready'],
+        [`❌ ${failed} failed`, failed ? 'error' : ''],
+        [`🛰️ ${total} APIs in catalog`, ''],
     ];
-    badges.forEach(b => {
+    badges.forEach(([text, cls]) => {
         const span = document.createElement('span');
-        span.className = `signal-badge ${b.cls}`;
-        span.textContent = b.text;  // Safe: textContent
-        summaryEl.appendChild(span);
+        span.className = 'badge ' + cls;
+        span.textContent = text;
+        wrap.appendChild(span);
     });
+    document.getElementById('signalNote').textContent = s.keyConfigured
+        ? `${ready} Google APIs returned live data for this location.`
+        : 'No Google API key configured — using density-based estimates. Add GOOGLE_MAPS_API_KEY for live data.';
+}
 
-    // Safe: textContent for detail message
-    detailEl.textContent = `Live API signals used for this prediction. ${readyCount} out of ${totalApis} Google APIs returned data successfully.`;
+function renderParkingMarkers(lots) {
+    if (!state.parkingLayer) return;
+    state.parkingLayer.clearLayers();
+    lots.forEach((lot) => {
+        if (lot.lat == null || lot.lng == null) return;
+        L.circleMarker([lot.lat, lot.lng], {
+            radius: 7,
+            color: colorFor(lot.occupancyPct ?? 0),
+            fillColor: colorFor(lot.occupancyPct ?? 0),
+            fillOpacity: 0.8,
+        }).bindPopup(`${sanitize(lot.name)} — ${lot.estAvailable} free (${lot.occupancyPct}% full)`)
+          .addTo(state.parkingLayer);
+    });
+}
+
+/* ---------------- Health ---------------- */
+async function checkHealth() {
+    const dot = document.getElementById('statusDot');
+    const text = document.getElementById('statusText');
+    try {
+        const resp = await fetch(`${API_BASE}/api/health`);
+        if (!resp.ok) throw new Error();
+        const d = await resp.json();
+        dot.className = 'dot ready';
+        text.textContent = d.apiKeyConfigured ? 'Engine ready · live data' : 'Engine ready · estimate mode';
+    } catch {
+        dot.className = 'dot error';
+        text.textContent = 'Engine offline';
+    }
+}
+
+/* ---------------- Helpers ---------------- */
+function setText(id, v) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = v != null ? String(v) : '--';
+}
+function pct(v) { return v != null ? v + '%' : '--%'; }
+function sanitize(str) {
+    const div = document.createElement('div');
+    div.textContent = str == null ? '' : String(str);
+    return div.innerHTML;
+}
+let toastTimer = null;
+function toast(msg, isError) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast show' + (isError ? ' error' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = 'toast'; }, 4000);
 }

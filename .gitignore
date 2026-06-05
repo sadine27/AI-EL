@@ -47,3 +47,11 @@ yarn-error.log*
 
 # --- Browser local storage exports / test data ---
 data/*.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/

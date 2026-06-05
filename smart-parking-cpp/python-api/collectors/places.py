@@ -94,6 +94,125 @@ async def fetch_nearby_places(center: dict, api_key: str, radius_meters: int = 6
         return {"places": places, "radiusMeters": radius}
 
 
+PARKING_TYPES = ["parking"]
+
+
+async def fetch_nearby_parking(center: dict, api_key: str, radius_meters: int = 1000):
+    """Fetch nearby parking facilities from Places API (New) with edge handling."""
+    if not isinstance(center, dict) or "lat" not in center or "lng" not in center:
+        raise ValueError("center must be a dict with 'lat' and 'lng' keys")
+
+    radius = max(1, min(2000, radius_meters))
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            PLACE_SEARCH_URL,
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": api_key,
+                "X-Goog-FieldMask": (
+                    "places.id,places.displayName,places.types,"
+                    "places.businessStatus,places.location"
+                )
+            },
+            json={
+                "includedTypes": PARKING_TYPES,
+                "maxResultCount": 20,
+                "locationRestriction": {
+                    "circle": {
+                        "center": {"latitude": center["lat"], "longitude": center["lng"]},
+                        "radius": radius
+                    }
+                }
+            }
+        )
+
+        if response.status_code != 200:
+            raise Exception(f"Places API (parking) HTTP {response.status_code}")
+
+        result = response.json()
+        if not isinstance(result, dict):
+            raise Exception("Places API returned non-dict response")
+
+        raw = result.get("places", [])
+        if not isinstance(raw, list):
+            raw = []
+
+        lots = []
+        for p in raw:
+            if not isinstance(p, dict):
+                continue
+            loc = p.get("location", {}) if isinstance(p.get("location"), dict) else {}
+            display_name = p.get("displayName", {})
+            if not isinstance(display_name, dict):
+                display_name = {}
+            types = p.get("types", [])
+            if not isinstance(types, list):
+                types = []
+            lots.append({
+                "name": display_name.get("text", "Parking"),
+                "type": next((t for t in types if "parking" in t), "parking"),
+                "lat": float(loc.get("latitude", 0) or 0),
+                "lng": float(loc.get("longitude", 0) or 0),
+            })
+
+        return {"parking": lots, "radiusMeters": radius}
+
+
+# Rough per-facility stall estimates by inferred parking kind.
+_STALLS_GARAGE = 280       # multi-storey / structure / garage
+_STALLS_LOT = 70           # surface lot
+_STALLS_STREET = 14        # roadside / small
+
+
+def _estimate_stalls(name: str, ptype: str) -> tuple[int, str]:
+    """Infer a parking facility's size and a friendly kind label from its name/type."""
+    text = f"{name} {ptype}".lower()
+    if any(k in text for k in ("garage", "structure", "multi", "multi-storey", "multistorey", "deck", "tower")):
+        return _STALLS_GARAGE, "garage"
+    if any(k in text for k in ("street", "kerb", "curb", "roadside", "meter", "metered")):
+        return _STALLS_STREET, "street"
+    return _STALLS_LOT, "lot"
+
+
+def estimate_parking_capacity(parking: list, places: list) -> dict:
+    """Estimate total nearby parking capacity.
+
+    Uses live parking facilities when available; otherwise falls back to a
+    density-based estimate from the number of nearby places.
+    Returns {totalCapacity, lots, source}.
+    """
+    if isinstance(parking, list) and len(parking) > 0:
+        lots = []
+        total = 0
+        for lot in parking:
+            if not isinstance(lot, dict):
+                continue
+            stalls, kind = _estimate_stalls(lot.get("name", ""), lot.get("type", "parking"))
+            total += stalls
+            lots.append({
+                "name": lot.get("name", "Parking"),
+                "type": kind,
+                "estStalls": stalls,
+                "lat": lot.get("lat"),
+                "lng": lot.get("lng"),
+            })
+        if total > 0:
+            return {"totalCapacity": total, "lots": lots, "source": "live"}
+
+    # Fallback: estimate capacity from nearby place density.
+    n = len(places) if isinstance(places, list) else 0
+    capacity = int(max(20, min(600, 40 + n * 12)))
+    # Represent the estimate as a couple of notional lots for the UI.
+    lots = [
+        {"name": "Estimated surface parking", "type": "lot",
+         "estStalls": int(round(capacity * 0.6)), "lat": None, "lng": None},
+        {"name": "Estimated street parking", "type": "street",
+         "estStalls": capacity - int(round(capacity * 0.6)), "lat": None, "lng": None},
+    ]
+    return {"totalCapacity": capacity, "lots": lots, "source": "estimated"}
+
+
 def compute_demand_score(places: list, hour: int, day: int) -> float:
     """Compute nearby demand score from places data with edge case safety."""
     if not isinstance(places, list) or len(places) == 0:

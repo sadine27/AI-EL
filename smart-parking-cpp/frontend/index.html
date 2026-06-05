@@ -3,95 +3,108 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Parking AI — Enhanced C++ Engine</title>
+    <title>Smart Parking AI</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1>🚗 Smart Parking AI</h1>
-            <p class="subtitle">Enhanced C++ + Python Prediction Engine</p>
-            <div class="api-status" id="apiStatus">
-                <span class="status-indicator checking" id="engineStatus"></span>
-                <span id="statusText">Checking engine status...</span>
+    <div class="app">
+        <header class="app-header">
+            <div class="brand">
+                <div class="logo">🅿️</div>
+                <div>
+                    <h1>Smart Parking AI</h1>
+                    <p>Explainable parking-availability prediction</p>
+                </div>
+            </div>
+            <div class="status-chip">
+                <span class="dot checking" id="statusDot"></span>
+                <span id="statusText">Checking engine…</span>
             </div>
         </header>
 
-        <main>
-            <!-- Control Panel -->
-            <section class="card">
-                <h2>Parking Configuration</h2>
-                <div class="form-grid">
-                    <div class="form-group">
-                        <label for="lat">Latitude</label>
-                        <input type="number" id="lat" value="19.0760" step="0.0001">
-                    </div>
-                    <div class="form-group">
-                        <label for="lng">Longitude</label>
-                        <input type="number" id="lng" value="72.8777" step="0.0001">
-                    </div>
-                    <div class="form-group">
-                        <label for="totalSlots">Total Slots</label>
-                        <input type="number" id="totalSlots" value="10" min="1" max="100">
-                    </div>
-                    <div class="form-group">
-                        <label for="unavailable">Occupied Slots</label>
-                        <input type="number" id="unavailable" value="3" min="0">
-                    </div>
-                </div>
-                <button id="predictBtn" class="btn-primary">🔮 Predict Availability</button>
-            </section>
+        <!-- Location + map -->
+        <section class="card" style="margin-bottom:18px;">
+            <h2>📍 Choose a location <span class="sub">use your current location or search an address</span></h2>
+            <div class="search-row">
+                <input type="text" id="addressInput" placeholder="Enter an address, place or area…"
+                       autocomplete="off" maxlength="300">
+                <button class="btn btn-ghost" id="searchBtn">Search</button>
+                <button class="btn" id="locateBtn">📡 Use my location</button>
+            </div>
+            <div class="loc-line" id="locLine">No location selected yet.</div>
+            <div id="map"></div>
+            <button class="btn btn-primary btn-block" id="predictBtn" disabled>
+                🔮 Predict parking availability
+            </button>
+        </section>
 
-            <!-- Results Panel -->
-            <section class="card" id="resultsCard" style="display:none;">
-                <h2>AI Prediction Results</h2>
-                <div class="results-grid">
-                    <div class="result-card">
-                        <span class="result-label">Predicted Available</span>
-                        <span class="result-value" id="predictedAvailable">--</span>
+        <!-- Results -->
+        <div id="results" class="hidden">
+            <div class="grid cols-2">
+                <!-- Hero result -->
+                <section class="card">
+                    <h2>Prediction</h2>
+                    <div class="result-hero">
+                        <div class="gauge" id="gauge">
+                            <div class="gauge-inner">
+                                <div class="gauge-num" id="occNum">--%</div>
+                                <div class="gauge-lbl">predicted<br>occupancy</div>
+                            </div>
+                        </div>
+                        <div class="hero-facts">
+                            <span class="verdict-badge" id="verdictBadge">—</span>
+                            <div class="big-avail">
+                                <span id="availNum">--</span>
+                                <span>of ~<b id="capNum">--</b> spots likely free</span>
+                            </div>
+                            <div class="hero-meta">
+                                <div><b id="demandLabel">--</b><br>demand</div>
+                                <div><b id="riskLabel">--</b><br>risk</div>
+                                <div><b id="confNum">--%</b><br>confidence</div>
+                                <div><b id="horizon">30</b> min<br>horizon</div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="result-card">
-                        <span class="result-label">Occupancy</span>
-                        <span class="result-value" id="predictedOccupancy">--%</span>
-                    </div>
-                    <div class="result-card">
-                        <span class="result-label">Risk Level</span>
-                        <span class="result-value" id="riskLabel">--</span>
-                    </div>
-                    <div class="result-card">
-                        <span class="result-label">Demand</span>
-                        <span class="result-value" id="demandLabel">--</span>
-                    </div>
-                    <div class="result-card">
-                        <span class="result-label">Confidence</span>
-                        <span class="result-value" id="confidencePct">--%</span>
-                    </div>
-                    <div class="result-card">
-                        <span class="result-label">Engine</span>
-                        <span class="result-value" id="engine">--</span>
-                    </div>
-                </div>
-            </section>
+                </section>
 
-            <!-- Model Breakdown Panel -->
-            <section class="card" id="breakdownCard" style="display:none;">
-                <h2>Model Breakdown</h2>
-                <div class="breakdown" id="modelBreakdown"></div>
-            </section>
+                <!-- AI opinion -->
+                <section class="card">
+                    <h2>🧠 AI opinion <span class="sub">why, and what to do</span></h2>
+                    <p class="opinion-headline" id="opinionHeadline">—</p>
+                    <ul class="reasons" id="opinionReasons"></ul>
+                    <div class="rec-box" id="opinionRec"></div>
+                </section>
+            </div>
 
-            <!-- API Signals Panel -->
-            <section class="card" id="signalsCard" style="display:none;">
-                <h2>Google API Signals</h2>
-                <div class="signal-summary" id="signalSummary"></div>
-                <div class="signal-detail" id="signalDetail"></div>
-            </section>
-        </main>
+            <div class="grid cols-2" style="margin-top:18px;">
+                <!-- Nearby parking -->
+                <section class="card">
+                    <h2>🅿️ Nearby parking <span class="sub" id="capSource"></span></h2>
+                    <div class="lot-list" id="lotList"></div>
+                </section>
 
-        <footer>
-            <p>AI Foundations for Engineers — Explainable AI Parking Prediction</p>
-        </footer>
+                <!-- Model breakdown -->
+                <section class="card">
+                    <h2>📊 Model breakdown <span class="sub">how each AI method voted</span></h2>
+                    <div class="kv-grid" id="breakdown"></div>
+                </section>
+            </div>
+
+            <!-- Signals -->
+            <section class="card" style="margin-top:18px;">
+                <h2>🛰️ Google API signals <span class="sub">live data used for this prediction</span></h2>
+                <div class="badges" id="signalBadges"></div>
+                <p class="note" id="signalNote"></p>
+            </section>
+        </div>
     </div>
 
+    <div class="toast" id="toast"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="js/app.js"></script>
 </body>
 </html>
