@@ -532,13 +532,19 @@
                         card.className = 'lot-card';
                         const name = lot.name || 'Unnamed Lot';
                         const totalSlots = lot.total_slots !== undefined ? lot.total_slots : 'N/A';
-                        const lat = lot.latitude !== undefined ? lot.latitude : 'N/A';
-                        const lng = lot.longitude !== undefined ? lot.longitude : 'N/A';
-                        card.innerHTML = `
-                            <div class="lot-name">${name}</div>
-                            <div class="lot-detail">Total Slots: <span>${totalSlots}</span></div>
-                            <div class="lot-detail">Lat: <span>${lat}</span> / Lng: <span>${lng}</span></div>
-                        `;
+                        const lat = lot.lat !== undefined ? lot.lat : 'N/A';
+                        const lng = lot.lng !== undefined ? lot.lng : 'N/A';
+                        // Build with textContent (no innerHTML) to prevent XSS from DB-sourced values.
+                        const nameEl = document.createElement('div');
+                        nameEl.className = 'lot-name';
+                        nameEl.textContent = name;
+                        const slotsEl = document.createElement('div');
+                        slotsEl.className = 'lot-detail';
+                        slotsEl.textContent = `Total Slots: ${totalSlots}`;
+                        const coordEl = document.createElement('div');
+                        coordEl.className = 'lot-detail';
+                        coordEl.textContent = `Lat: ${lat} / Lng: ${lng}`;
+                        card.append(nameEl, slotsEl, coordEl);
                         lotsGrid.appendChild(card);
                     });
                 } catch (err) {
