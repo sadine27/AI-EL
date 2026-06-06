@@ -18,6 +18,10 @@ inline const std::unordered_set<int> SHOPPING_PEAK_HOURS   = {12, 13, 18, 19, 20
 // Utility functions
 // ------------------------------------------------------------
 inline double clamp(double value, double lo = 0.0, double hi = 1.0) {
+    // NaN compares false against everything, so an unguarded clamp would let a
+    // NaN flow straight through and silently poison every downstream score.
+    // Treat non-finite input as the lower bound.
+    if (!std::isfinite(value)) return lo;
     if (value < lo) return lo;
     if (value > hi) return hi;
     return value;
@@ -25,6 +29,20 @@ inline double clamp(double value, double lo = 0.0, double hi = 1.0) {
 
 inline double sigmoid(double x) {
     return 1.0 / (1.0 + std::exp(-x));
+}
+
+// Guarded math helpers — return a safe 0.0 instead of producing inf/NaN on
+// degenerate inputs (division by zero, log of a non-positive number). Used to
+// keep the ensemble's ratio and log-likelihood terms finite.
+inline double safe_divide(double numerator, double denominator) {
+    if (!std::isfinite(numerator) || !std::isfinite(denominator)) return 0.0;
+    return denominator == 0.0 ? 0.0 : numerator / denominator;
+}
+
+inline double safe_log(double value) {
+    // value > 0.0 already rejects NaN (NaN > 0 is false); the isfinite guard
+    // additionally rejects +inf, for which std::log would return +inf.
+    return (std::isfinite(value) && value > 0.0) ? std::log(value) : 0.0;
 }
 
 inline bool isWeekend(int dayOfWeek) {

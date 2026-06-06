@@ -1,7 +1,7 @@
 // Edge case tests for bayesian model
 // Compile with: g++ -std=c++17 -I../include -I. test_bayesian.cpp ../src/bayesian_model.cpp ../src/ai_utils.cpp ../src/feature_extractor.cpp -o test_bayesian
 
-#define DOCTEST_CONFIG_IMPLEMENT
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "bayesian_model.h"
 #include "feature_extractor.h"

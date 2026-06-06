@@ -1,7 +1,7 @@
 // Edge case tests for feature extractor
 // Compile with: g++ -std=c++17 -I../include -I. test_feature_extractor.cpp ../src/feature_extractor.cpp ../src/ai_utils.cpp -o test_feature_extractor
 
-#define DOCTEST_CONFIG_IMPLEMENT
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "feature_extractor.h"
 #include "ai_utils.h"

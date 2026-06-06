@@ -90,13 +90,19 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Smart Parking AI API shutting down")
 
+# Documentation + schema are opt-in. When ENABLE_DOCS != "1" we disable not just
+# the Swagger UI but also the OpenAPI schema route, so /openapi.json doesn't leak
+# the full internal API surface in production.
+DOCS_ENABLED = os.getenv("ENABLE_DOCS", "0") == "1"
+
 app = FastAPI(
     title="Smart Parking AI API",
     version="2.0.0",
     description="Enhanced C++ + Python parking availability prediction engine",
     lifespan=lifespan,
-    docs_url="/api/docs" if os.getenv("ENABLE_DOCS", "0") == "1" else None,
+    docs_url="/api/docs" if DOCS_ENABLED else None,
     redoc_url=None,
+    openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
 
 # ------------------------------------------------------------
@@ -216,6 +222,8 @@ async def security_middleware(request: Request, call_next):
     for header, value in SECURITY_HEADERS.items():
         response.headers[header] = value
     response.headers["X-Request-ID"] = request_id
+    # Don't advertise the underlying server/framework or its version.
+    response.headers["Server"] = "smart-parking"
 
     # Audit logging for API endpoints
     if request.url.path.startswith("/api/") and request.url.path != "/api/health":
@@ -657,4 +665,6 @@ if os.getenv("SERVE_FRONTEND", "1") == "1":
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PYTHON_API_PORT", "8080"))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # server_header=False stops uvicorn emitting "Server: uvicorn/<version>"; the
+    # middleware also overrides it defensively in case the app is started elsewhere.
+    uvicorn.run(app, host="0.0.0.0", port=port, server_header=False)

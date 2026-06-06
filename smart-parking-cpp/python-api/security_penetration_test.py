@@ -17,6 +17,7 @@ Tests for:
 import os
 import sys
 import json
+import itertools
 import pytest
 import httpx
 from datetime import datetime, timezone
@@ -30,10 +31,40 @@ pytestmark = pytest.mark.asyncio
 
 
 # ---------------------------------------------------------------------------
+# Per-test client isolation
+# ---------------------------------------------------------------------------
+# The server enforces an in-memory per-IP rate limit (60 req / 60 s) keyed on
+# X-Forwarded-For. Without isolation, the burst in TestRateLimiting would
+# saturate the shared client IP and every later test would spuriously get 429.
+# Give each test its own forwarded IP so rate-limit buckets never bleed across
+# tests, and the rate-limit test trips only its own bucket.
+_ip_counter = itertools.count(1)
+_current_ip = "10.0.0.0"
+
+
+@pytest.fixture(autouse=True)
+def _unique_client_ip():
+    """Assign a unique X-Forwarded-For IP to every test."""
+    global _current_ip
+    n = next(_ip_counter)
+    _current_ip = f"10.{(n >> 16) & 255}.{(n >> 8) & 255}.{n & 255}"
+    yield
+
+
+def pen_client() -> httpx.AsyncClient:
+    """An AsyncClient pre-seeded with this test's unique forwarded IP."""
+    return httpx.AsyncClient(
+        base_url=BASE_URL,
+        timeout=10.0,
+        headers={"X-Forwarded-For": _current_ip},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
 async def post_predict(payload: dict, headers: dict | None = None) -> httpx.Response:
-    async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+    async with pen_client() as client:
         return await client.post(
             "/api/predict",
             json=payload,
@@ -42,7 +73,7 @@ async def post_predict(payload: dict, headers: dict | None = None) -> httpx.Resp
 
 
 async def get_health() -> httpx.Response:
-    async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+    async with pen_client() as client:
         return await client.get("/api/health")
 
 
@@ -145,7 +176,7 @@ class TestParameterPollution:
         """Duplicate keys (last wins) should be handled safely."""
         # httpx will use the last value; test that it doesn't crash
         payload = '{"lat": 19.0, "lng": 72.0, "lat": 999.0}'
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.post(
                 "/api/predict",
                 content=payload,
@@ -188,17 +219,39 @@ class TestBoundaryAttacks:
         {"lat": 19.0, "lng": -181.0},
         {"lat": 19.0, "lng": 181.0},
         {"lat": 1e200, "lng": 72.0},
-        {"lat": 19.0, "lng": float('inf')},
-        {"lat": float('nan'), "lng": 72.0},
     ])
     async def test_boundary_values(self, payload):
         """Boundary values should be rejected or handled safely."""
         resp = await post_predict(payload)
         assert resp.status_code in (200, 422), f"Boundary value not caught: {payload} -> {resp.status_code}"
 
+    @pytest.mark.parametrize("raw_body", [
+        '{"lat": 19.0, "lng": Infinity}',
+        '{"lat": -Infinity, "lng": 72.0}',
+        '{"lat": NaN, "lng": 72.0}',
+    ])
+    async def test_non_finite_numbers_handled_safely(self, raw_body):
+        """Non-finite JSON tokens (Infinity/NaN are not valid JSON) must be
+        rejected or sanitised server-side, never crash the server.
+
+        These are sent as raw content rather than via the json= encoder so the
+        wire bytes carry the literal tokens; httpx's json encoder would either
+        emit these same non-standard tokens or raise client-side, which would
+        test the client instead of the server.
+        """
+        async with pen_client() as client:
+            resp = await client.post(
+                "/api/predict",
+                content=raw_body,
+                headers={"Content-Type": "application/json"},
+            )
+        assert resp.status_code in (200, 400, 422), (
+            f"Non-finite token mishandled: {raw_body} -> {resp.status_code}"
+        )
+
     async def test_empty_payload(self):
         """Empty JSON body."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.post(
                 "/api/predict",
                 json={},
@@ -209,7 +262,7 @@ class TestBoundaryAttacks:
 
     async def test_malformed_json(self):
         """Malformed JSON body."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.post(
                 "/api/predict",
                 content="not json at all {{{",
@@ -241,7 +294,7 @@ class TestDoSAttacks:
         current["lat"] = 19.0
         current["lng"] = 72.0
 
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.post(
                 "/api/predict",
                 json=nested,
@@ -327,7 +380,7 @@ class TestCORSSecurity:
 
     async def test_cors_restricted_origin(self):
         """Non-whitelisted origin should be rejected."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.get(
                 "/api/health",
                 headers={"Origin": "https://evil.com"},
@@ -338,7 +391,7 @@ class TestCORSSecurity:
 
     async def test_cors_wildcard_not_present(self):
         """Access-Control-Allow-Origin must not be '*'."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.get(
                 "/api/health",
                 headers={"Origin": "http://localhost:8080"},
@@ -366,7 +419,7 @@ class TestPathTraversal:
     ])
     async def test_path_traversal(self, path):
         """Path traversal should not expose sensitive files."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.get(path)
         # Should NOT return 200 with sensitive content
         if resp.status_code == 200:
@@ -397,7 +450,7 @@ class TestAPIKeyExposure:
 
     async def test_no_api_key_in_urls(self):
         """API keys should not be passed in URLs."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.get("/api/health")
         body_str = json.dumps(dict(resp.headers))
         assert "key=" not in body_str, "API key leaked in URL/headers"
@@ -412,7 +465,7 @@ class TestHTTPMethodTampering:
     @pytest.mark.parametrize("method", ["PUT", "DELETE", "PATCH", "OPTIONS"])
     async def test_disallowed_methods_on_predict(self, method):
         """Only POST should be allowed on /api/predict."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.request(
                 method,
                 "/api/predict",
@@ -423,7 +476,7 @@ class TestHTTPMethodTampering:
 
     async def test_get_on_predict(self):
         """GET on /api/predict should be rejected."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.get("/api/predict")
         assert resp.status_code in (405, 400, 403), f"GET on /api/predict should fail, got {resp.status_code}"
 
@@ -436,7 +489,7 @@ class TestContentTypeAttacks:
 
     async def test_xml_content_type(self):
         """XML content type should be rejected."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.post(
                 "/api/predict",
                 content="<xml><lat>19</lat></xml>",
@@ -446,7 +499,7 @@ class TestContentTypeAttacks:
 
     async def test_form_encoded(self):
         """Form-urlencoded content should be rejected."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.post(
                 "/api/predict",
                 data="lat=19&lng=72",
@@ -456,7 +509,7 @@ class TestContentTypeAttacks:
 
     async def test_binary_content(self):
         """Binary content should be rejected."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.post(
                 "/api/predict",
                 content=b"\x00\x01\x02\x03\x04",
@@ -473,7 +526,7 @@ class TestHostHeaderInjection:
 
     async def test_malicious_host_header(self):
         """Malicious host header should be rejected by TrustedHostMiddleware."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.get(
                 "/api/health",
                 headers={"Host": "evil.com"},
@@ -483,7 +536,7 @@ class TestHostHeaderInjection:
 
     async def test_x_forwarded_host_spoofing(self):
         """X-Forwarded-Host spoofing."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.get(
                 "/api/health",
                 headers={
@@ -504,13 +557,13 @@ class TestEndpointDiscovery:
 
     async def test_docs_disabled(self):
         """Swagger docs should be disabled by default."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.get("/docs")
         assert resp.status_code in (404, 405, 400), f"Docs should be disabled: {resp.status_code}"
 
     async def test_openapi_json_disabled(self):
         """OpenAPI JSON should be disabled by default."""
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             resp = await client.get("/openapi.json")
         assert resp.status_code in (404, 405, 400), f"OpenAPI should be disabled: {resp.status_code}"
 
@@ -526,7 +579,7 @@ class TestEndpointDiscovery:
             "/api/debug",
             "/api/admin",
         ]
-        async with httpx.AsyncClient(base_url=BASE_URL, timeout=10.0) as client:
+        async with pen_client() as client:
             for path in internal_paths:
                 resp = await client.get(path)
                 assert resp.status_code in (404, 405, 400, 403, 200), f"Unexpected status for {path}: {resp.status_code}"

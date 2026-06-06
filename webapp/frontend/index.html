@@ -1,709 +1,317 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Parking Predictor</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Smart Parking — find a spot near you</title>
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-        }
+<!-- Leaflet (OpenStreetMap) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 
-        .container {
-            max-width: 800px;
-            width: 100%;
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-radius: 24px;
-            padding: 30px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        }
+<style>
+  :root{
+    --bg:#0b1220; --panel:#111a2e; --panel-2:#16223c; --line:#22304f;
+    --text:#e8eefc; --muted:#9fb0d0; --brand:#3b82f6; --brand-2:#2563eb;
+    --low:#16a34a; --med:#d97706; --high:#dc2626;
+    --radius:16px; --shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+    background:radial-gradient(1200px 600px at 80% -10%,#16305e 0%,var(--bg) 55%);
+    color:var(--text); display:flex; flex-direction:column; min-height:100vh;
+  }
+  header{
+    display:flex; align-items:center; gap:14px; padding:16px 22px;
+    border-bottom:1px solid var(--line); backdrop-filter:blur(6px);
+  }
+  .logo{font-size:26px} h1{font-size:19px;margin:0;font-weight:700}
+  header .sub{color:var(--muted);font-size:13px;margin-top:2px}
+  .spacer{flex:1}
+  .pill{font-size:12px;color:var(--muted);border:1px solid var(--line);
+        padding:6px 10px;border-radius:999px;background:var(--panel)}
 
-        h1 {
-            font-size: 28px;
-            color: #1a2a3a;
-            margin-bottom: 8px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+  .layout{flex:1;display:grid;grid-template-columns:1fr 380px;gap:0;min-height:0}
+  #map{height:100%;min-height:420px;background:#0e1626}
+  .sidebar{border-left:1px solid var(--line);display:flex;flex-direction:column;
+           min-height:0;background:var(--panel)}
+  .controls{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;
+            flex-wrap:wrap;gap:10px;align-items:end}
+  .field{display:flex;flex-direction:column;gap:4px}
+  .field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  select,input,button{font:inherit;color:var(--text);background:var(--panel-2);
+            border:1px solid var(--line);border-radius:10px;padding:9px 11px;outline:none}
+  select:focus,input:focus{border-color:var(--brand)}
+  button{cursor:pointer}
+  .btn-primary{background:var(--brand-2);border-color:var(--brand-2);font-weight:600}
+  .btn-primary:hover{background:var(--brand)}
+  .btn-ghost:hover{border-color:var(--brand)}
 
-        h1 span {
-            background: #2c5364;
-            color: white;
-            font-size: 14px;
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-weight: 500;
-        }
+  .status{padding:12px 16px;font-size:13px;color:var(--muted)}
+  .status.err{color:#fecaca;background:rgba(220,38,38,.12);border-bottom:1px solid var(--line)}
+  .status .link{color:var(--brand);cursor:pointer;text-decoration:underline}
 
-        .subtitle {
-            color: #5a6a7a;
-            margin-bottom: 24px;
-            font-size: 14px;
-        }
+  .list{overflow:auto;padding:10px 12px 24px;display:flex;flex-direction:column;gap:10px}
+  .card{border:1px solid var(--line);background:var(--panel-2);border-radius:14px;
+        padding:13px 14px;cursor:pointer;transition:.15s;position:relative}
+  .card:hover{border-color:var(--brand);transform:translateY(-1px)}
+  .card.active{border-color:var(--brand);box-shadow:0 0 0 2px rgba(59,130,246,.25)}
+  .card .top{display:flex;justify-content:space-between;gap:10px;align-items:start}
+  .card h3{margin:0;font-size:15px;font-weight:650;line-height:1.25}
+  .card .dist{color:var(--muted);font-size:12px;white-space:nowrap}
+  .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:999px;color:#fff;text-transform:uppercase;letter-spacing:.03em}
+  .b-low{background:var(--low)} .b-med{background:var(--med)} .b-high{background:var(--high)}
+  .free{display:flex;align-items:baseline;gap:6px;margin:9px 0 6px}
+  .free .n{font-size:24px;font-weight:800} .free .lbl{font-size:12px;color:var(--muted)}
+  .bar{height:7px;border-radius:6px;background:#0d1730;overflow:hidden}
+  .bar>i{display:block;height:100%}
+  .meta{display:flex;gap:12px;flex-wrap:wrap;margin-top:9px;font-size:12px;color:var(--muted)}
+  .meta a{color:var(--brand);text-decoration:none}
+  .est-tag{font-size:10px;color:var(--muted);border:1px dashed var(--line);padding:1px 6px;border-radius:6px}
 
-        .section-title {
-            font-size: 18px;
-            color: #1a2a3a;
-            margin-bottom: 12px;
-            font-weight: 600;
-        }
+  .empty{padding:30px 16px;text-align:center;color:var(--muted)}
+  .spin{width:18px;height:18px;border:2px solid var(--line);border-top-color:var(--brand);
+        border-radius:50%;display:inline-block;animation:s .8s linear infinite;vertical-align:-3px;margin-right:8px}
+  @keyframes s{to{transform:rotate(360deg)}}
+  .leaflet-popup-content{font:inherit}
+  .pop h4{margin:0 0 4px;font-size:14px} .pop .pf{font-size:13px}
 
-        .lots-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin-bottom: 24px;
-        }
-
-        .lot-card {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-radius: 14px;
-            padding: 14px 16px;
-            transition: box-shadow 0.2s;
-        }
-
-        .lot-card:hover {
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-        }
-
-        .lot-name {
-            font-weight: 700;
-            color: #1a2a3a;
-            font-size: 15px;
-            margin-bottom: 6px;
-        }
-
-        .lot-detail {
-            font-size: 13px;
-            color: #5a6a7a;
-            margin-bottom: 2px;
-        }
-
-        .lot-detail span {
-            font-weight: 600;
-            color: #2c3e50;
-        }
-
-        .lots-loading, .lots-error {
-            grid-column: 1 / -1;
-            text-align: center;
-            padding: 20px;
-            color: #5a6a7a;
-            font-size: 14px;
-        }
-
-        .lots-error {
-            color: #b71c1c;
-            background: #fdecea;
-            border-radius: 12px;
-            border-left: 4px solid #b71c1c;
-        }
-
-        .form-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-bottom: 20px;
-        }
-
-        .form-group {
-            display: flex;
-            flex-direction: column;
-        }
-
-        .form-group.full-width {
-            grid-column: 1 / -1;
-        }
-
-        label {
-            font-size: 13px;
-            font-weight: 600;
-            color: #2c3e50;
-            margin-bottom: 4px;
-        }
-
-        input, select {
-            padding: 10px 14px;
-            border: 2px solid #dce4ec;
-            border-radius: 12px;
-            font-size: 14px;
-            transition: border-color 0.2s;
-            background: white;
-            color: #1a2a3a;
-        }
-
-        input:focus, select:focus {
-            outline: none;
-            border-color: #2c5364;
-            box-shadow: 0 0 0 3px rgba(44, 83, 100, 0.15);
-        }
-
-        .btn-predict {
-            width: 100%;
-            padding: 14px;
-            background: linear-gradient(135deg, #2c5364, #203a43);
-            color: white;
-            border: none;
-            border-radius: 14px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.15s, box-shadow 0.15s;
-            margin-top: 8px;
-        }
-
-        .btn-predict:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(44, 83, 100, 0.4);
-        }
-
-        .btn-predict:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .spinner {
-            display: none;
-            justify-content: center;
-            align-items: center;
-            gap: 10px;
-            margin: 20px 0;
-            color: #2c5364;
-            font-weight: 500;
-        }
-
-        .spinner.active {
-            display: flex;
-        }
-
-        .spinner-icon {
-            width: 24px;
-            height: 24px;
-            border: 3px solid #dce4ec;
-            border-top: 3px solid #2c5364;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .error-message {
-            display: none;
-            background: #fdecea;
-            color: #b71c1c;
-            padding: 12px 16px;
-            border-radius: 12px;
-            margin: 16px 0;
-            font-size: 14px;
-            border-left: 4px solid #b71c1c;
-        }
-
-        .error-message.active {
-            display: block;
-        }
-
-        .result-card {
-            display: none;
-            margin-top: 24px;
-            background: #f8fafc;
-            border-radius: 18px;
-            padding: 24px;
-            border: 1px solid #e2e8f0;
-        }
-
-        .result-card.active {
-            display: block;
-        }
-
-        .result-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 12px;
-            margin-bottom: 20px;
-        }
-
-        .predicted-available {
-            font-size: 32px;
-            font-weight: 700;
-            color: #1a2a3a;
-        }
-
-        .predicted-available small {
-            font-size: 16px;
-            font-weight: 400;
-            color: #5a6a7a;
-        }
-
-        .badge {
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .badge.low {
-            background: #e8f5e9;
-            color: #2e7d32;
-        }
-
-        .badge.medium {
-            background: #fff3e0;
-            color: #e65100;
-        }
-
-        .badge.high {
-            background: #fdecea;
-            color: #b71c1c;
-        }
-
-        .badge.unknown {
-            background: #eceff1;
-            color: #546e7a;
-        }
-
-        .progress-section {
-            margin: 16px 0;
-        }
-
-        .progress-label {
-            display: flex;
-            justify-content: space-between;
-            font-size: 14px;
-            color: #2c3e50;
-            margin-bottom: 6px;
-        }
-
-        .progress-bar-bg {
-            background: #e2e8f0;
-            border-radius: 20px;
-            height: 12px;
-            overflow: hidden;
-        }
-
-        .progress-bar-fill {
-            height: 100%;
-            border-radius: 20px;
-            background: linear-gradient(90deg, #43a047, #2e7d32);
-            transition: width 0.5s ease;
-            width: 0%;
-        }
-
-        .progress-bar-fill.warning {
-            background: linear-gradient(90deg, #ffa726, #e65100);
-        }
-
-        .progress-bar-fill.danger {
-            background: linear-gradient(90deg, #ef5350, #b71c1c);
-        }
-
-        .meta-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            margin: 16px 0;
-        }
-
-        .meta-item {
-            background: white;
-            padding: 12px 16px;
-            border-radius: 12px;
-            border: 1px solid #e2e8f0;
-        }
-
-        .meta-item .label {
-            font-size: 12px;
-            color: #5a6a7a;
-            text-transform: uppercase;
-            letter-spacing: 0.3px;
-        }
-
-        .meta-item .value {
-            font-size: 18px;
-            font-weight: 600;
-            color: #1a2a3a;
-            margin-top: 2px;
-        }
-
-        .model-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 16px;
-            font-size: 14px;
-        }
-
-        .model-table th {
-            text-align: left;
-            padding: 10px 12px;
-            background: #e2e8f0;
-            color: #2c3e50;
-            font-weight: 600;
-        }
-
-        .model-table td {
-            padding: 10px 12px;
-            border-bottom: 1px solid #e2e8f0;
-            color: #1a2a3a;
-        }
-
-        .model-table tr:last-child td {
-            border-bottom: none;
-        }
-
-        .model-table .model-name {
-            font-weight: 500;
-        }
-
-        @media (max-width: 600px) {
-            .container {
-                padding: 20px;
-            }
-            .form-grid {
-                grid-template-columns: 1fr;
-            }
-            .form-group.full-width {
-                grid-column: 1;
-            }
-            .result-header {
-                flex-direction: column;
-                align-items: flex-start;
-            }
-            .meta-grid {
-                grid-template-columns: 1fr;
-            }
-            .lots-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
+  @media (max-width:880px){
+    .layout{grid-template-columns:1fr;grid-template-rows:46vh 1fr}
+    .sidebar{border-left:none;border-top:1px solid var(--line)}
+  }
+</style>
 </head>
 <body>
-    <div class="container">
-        <h1>🅿️ Smart Parking <span>Predictor</span></h1>
-        <p class="subtitle">Enter parking lot details and get AI-powered availability predictions</p>
-
-        <div class="section-title">Available Parking Lots</div>
-        <div class="lots-grid" id="lotsGrid">
-            <div class="lots-loading">Loading parking lots...</div>
-        </div>
-
-        <div class="form-grid">
-            <div class="form-group">
-                <label for="latitude">Latitude</label>
-                <input type="number" id="latitude" step="any" placeholder="e.g. 40.7128" value="40.7128">
-            </div>
-            <div class="form-group">
-                <label for="longitude">Longitude</label>
-                <input type="number" id="longitude" step="any" placeholder="e.g. -74.0060" value="-74.0060">
-            </div>
-            <div class="form-group">
-                <label for="totalSlots">Total Slots</label>
-                <input type="number" id="totalSlots" min="1" placeholder="e.g. 100" value="100">
-            </div>
-            <div class="form-group">
-                <label for="unavailableSlots">Unavailable Slots</label>
-                <input type="number" id="unavailableSlots" min="0" placeholder="e.g. 20" value="20">
-            </div>
-            <div class="form-group">
-                <label for="hour">Hour (0-23)</label>
-                <input type="number" id="hour" min="0" max="23" placeholder="e.g. 14" value="14">
-            </div>
-            <div class="form-group">
-                <label for="dayOfWeek">Day of Week</label>
-                <select id="dayOfWeek">
-                    <option value="0">Sunday</option>
-                    <option value="1" selected>Monday</option>
-                    <option value="2">Tuesday</option>
-                    <option value="3">Wednesday</option>
-                    <option value="4">Thursday</option>
-                    <option value="5">Friday</option>
-                    <option value="6">Saturday</option>
-                </select>
-            </div>
-        </div>
-
-        <button class="btn-predict" id="predictBtn">🔮 Predict Availability</button>
-
-        <div class="spinner" id="spinner">
-            <div class="spinner-icon"></div>
-            <span>Analyzing parking data...</span>
-        </div>
-
-        <div class="error-message" id="errorMessage"></div>
-
-        <div class="result-card" id="resultCard">
-            <div class="result-header">
-                <div>
-                    <div class="predicted-available" id="predictedAvailable">-- <small>available slots</small></div>
-                </div>
-                <div>
-                    <span class="badge" id="riskBadge">--</span>
-                </div>
-            </div>
-
-            <div class="progress-section">
-                <div class="progress-label">
-                    <span>Occupancy</span>
-                    <span id="occupancyPercent">0%</span>
-                </div>
-                <div class="progress-bar-bg">
-                    <div class="progress-bar-fill" id="progressFill"></div>
-                </div>
-            </div>
-
-            <div class="meta-grid">
-                <div class="meta-item">
-                    <div class="label">Demand</div>
-                    <div class="value" id="demandLabel">--</div>
-                </div>
-                <div class="meta-item">
-                    <div class="label">Confidence</div>
-                    <div class="value" id="confidencePercent">--%</div>
-                </div>
-            </div>
-
-            <h3 style="margin-top: 20px; font-size: 16px; color: #2c3e50;">Model Breakdown</h3>
-            <table class="model-table" id="modelTable">
-                <thead>
-                    <tr>
-                        <th>Model</th>
-                        <th>Prediction</th>
-                        <th>Confidence</th>
-                    </tr>
-                </thead>
-                <tbody id="modelTableBody"></tbody>
-            </table>
-        </div>
+  <header>
+    <div class="logo">🅿️</div>
+    <div>
+      <h1>Smart Parking</h1>
+      <div class="sub">Real lots near you · AI availability estimates</div>
     </div>
+    <div class="spacer"></div>
+    <div class="pill" id="forTime">—</div>
+  </header>
 
-    <script>
-        (function() {
-            const lotsGrid = document.getElementById('lotsGrid');
-            const predictBtn = document.getElementById('predictBtn');
-            const spinner = document.getElementById('spinner');
-            const errorMessage = document.getElementById('errorMessage');
-            const resultCard = document.getElementById('resultCard');
+  <div class="layout">
+    <div id="map"></div>
 
-            const predictedAvailable = document.getElementById('predictedAvailable');
-            const riskBadge = document.getElementById('riskBadge');
-            const occupancyPercent = document.getElementById('occupancyPercent');
-            const progressFill = document.getElementById('progressFill');
-            const demandLabel = document.getElementById('demandLabel');
-            const confidencePercent = document.getElementById('confidencePercent');
-            const modelTableBody = document.getElementById('modelTableBody');
+    <aside class="sidebar">
+      <div class="controls">
+        <div class="field">
+          <label>Search radius</label>
+          <select id="radius">
+            <option value="800">800 m</option>
+            <option value="1500" selected>1.5 km</option>
+            <option value="3000">3 km</option>
+            <option value="5000">5 km</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Time of day</label>
+          <select id="hour"></select>
+        </div>
+        <div class="field">
+          <label>Day</label>
+          <select id="day"></select>
+        </div>
+        <div class="field">
+          <label>&nbsp;</label>
+          <button class="btn-primary" id="refresh">↻ Update</button>
+        </div>
+      </div>
 
-            // Fetch and render parking lots
-            async function loadLots() {
-                lotsGrid.innerHTML = '<div class="lots-loading">Loading parking lots...</div>';
-                try {
-                    const response = await fetch('http://127.0.0.1:8000/api/lots');
-                    if (!response.ok) {
-                        throw new Error(`Server error: ${response.status}`);
-                    }
-                    const lots = await response.json();
-                    if (!Array.isArray(lots) || lots.length === 0) {
-                        lotsGrid.innerHTML = '<div class="lots-loading">No parking lots available.</div>';
-                        return;
-                    }
-                    lotsGrid.innerHTML = '';
-                    lots.forEach(lot => {
-                        const card = document.createElement('div');
-                        card.className = 'lot-card';
-                        const name = lot.name || 'Unnamed Lot';
-                        const totalSlots = lot.total_slots !== undefined ? lot.total_slots : 'N/A';
-                        const lat = lot.lat !== undefined ? lot.lat : 'N/A';
-                        const lng = lot.lng !== undefined ? lot.lng : 'N/A';
-                        // Build with textContent (no innerHTML) to prevent XSS from DB-sourced values.
-                        const nameEl = document.createElement('div');
-                        nameEl.className = 'lot-name';
-                        nameEl.textContent = name;
-                        const slotsEl = document.createElement('div');
-                        slotsEl.className = 'lot-detail';
-                        slotsEl.textContent = `Total Slots: ${totalSlots}`;
-                        const coordEl = document.createElement('div');
-                        coordEl.className = 'lot-detail';
-                        coordEl.textContent = `Lat: ${lat} / Lng: ${lng}`;
-                        card.append(nameEl, slotsEl, coordEl);
-                        lotsGrid.appendChild(card);
-                    });
-                } catch (err) {
-                    lotsGrid.innerHTML = `<div class="lots-error">Failed to load parking lots: ${err.message}</div>`;
-                }
-            }
+      <div id="status" class="status"></div>
+      <div id="list" class="list"></div>
+    </aside>
+  </div>
 
-            document.addEventListener('DOMContentLoaded', loadLots);
+<script>
+// Always use 127.0.0.1 (IPv4): "localhost" can resolve to IPv6 ::1, which the
+// IPv4-bound uvicorn server doesn't answer -> "Failed to fetch".
+const API = 'http://127.0.0.1:8000';
+const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
-            function getFormData() {
-                return {
-                    latitude: parseFloat(document.getElementById('latitude').value) || 0,
-                    longitude: parseFloat(document.getElementById('longitude').value) || 0,
-                    total_slots: parseInt(document.getElementById('totalSlots').value) || 0,
-                    unavailable_slots: parseInt(document.getElementById('unavailableSlots').value) || 0,
-                    hour: parseInt(document.getElementById('hour').value) || 0,
-                    day_of_week: parseInt(document.getElementById('dayOfWeek').value) || 0
-                };
-            }
+let map, userMarker, lotLayer, markers = {}, current = null;
 
-            function validateForm(data) {
-                if (isNaN(data.latitude) || isNaN(data.longitude)) return 'Latitude and longitude must be valid numbers.';
-                if (data.total_slots < 1) return 'Total slots must be at least 1.';
-                if (data.unavailable_slots < 0) return 'Unavailable slots cannot be negative.';
-                if (data.unavailable_slots > data.total_slots) return 'Unavailable slots cannot exceed total slots.';
-                if (data.hour < 0 || data.hour > 23) return 'Hour must be between 0 and 23.';
-                if (data.day_of_week < 0 || data.day_of_week > 6) return 'Invalid day of week.';
-                return null;
-            }
+// ---- UI helpers ----
+const $ = id => document.getElementById(id);
+// OSM data (lot names, tags) is world-editable, so treat it as untrusted and
+// escape it before it ever touches innerHTML — prevents stored XSS via lot names.
+function esc(s){ return String(s == null ? '' : s)
+  .replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function riskClass(r){ return r==='high'?'high':r==='medium'?'med':'low'; }
+function riskColor(r){ return r==='high'?'#dc2626':r==='medium'?'#d97706':'#16a34a'; }
+function setStatus(html, isErr){ const s=$('status'); s.className='status'+(isErr?' err':''); s.innerHTML=html; }
 
-            function setLoading(isLoading) {
-                predictBtn.disabled = isLoading;
-                spinner.classList.toggle('active', isLoading);
-                errorMessage.classList.remove('active');
-                if (isLoading) {
-                    resultCard.classList.remove('active');
-                }
-            }
+function fillTimeControls(){
+  const now = new Date();
+  const h = $('hour');
+  for(let i=0;i<24;i++){
+    const ampm = i===0?'12 AM':i<12?`${i} AM`:i===12?'12 PM':`${i-12} PM`;
+    h.add(new Option(ampm, i, false, i===now.getHours()));
+  }
+  const d = $('day');
+  const todayIdx = (now.getDay()+6)%7; // JS Sun=0 -> our Mon=0
+  DAYS.forEach((name,i)=> d.add(new Option(name, i, false, i===todayIdx)));
+}
 
-            function showError(msg) {
-                errorMessage.textContent = msg;
-                errorMessage.classList.add('active');
-                resultCard.classList.remove('active');
-            }
+function updateForTimePill(){
+  $('forTime').textContent = `for ${$('hour').selectedOptions[0].text} · ${DAYS[+$('day').value]}`;
+}
 
-            function getRiskLabel(occupancy) {
-                if (occupancy < 50) return { text: 'Low Risk', className: 'low' };
-                if (occupancy < 80) return { text: 'Medium Risk', className: 'medium' };
-                return { text: 'High Risk', className: 'high' };
-            }
+// ---- map ----
+function initMap(lat, lng){
+  map = L.map('map',{zoomControl:true}).setView([lat,lng],15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19, attribution:'© OpenStreetMap contributors'
+  }).addTo(map);
+  lotLayer = L.layerGroup().addTo(map);
+  setUser(lat,lng);
+}
+function setUser(lat,lng){
+  if(userMarker) userMarker.remove();
+  userMarker = L.circleMarker([lat,lng],{
+    radius:9,color:'#fff',weight:3,fillColor:'#3b82f6',fillOpacity:1
+  }).addTo(map).bindPopup('<b>You are here</b>');
+}
 
-            function getDemandLabel(occupancy) {
-                if (occupancy < 30) return 'Low Demand';
-                if (occupancy < 60) return 'Moderate Demand';
-                if (occupancy < 85) return 'High Demand';
-                return 'Very High Demand';
-            }
+// ---- rendering ----
+function dirLink(lat,lng){ return `https://www.openstreetmap.org/directions?to=${lat},${lng}`; }
 
-            function renderResult(data) {
-                const occ = data.occupancyPercent;
-                const risk = getRiskLabel(occ);
-                const demand = getDemandLabel(occ);
+function render(data){
+  updateForTimePill();
+  lotLayer.clearLayers(); markers={}; current=null;
+  const list = $('list'); list.innerHTML='';
+  const lots = data.lots || [];
 
-                predictedAvailable.innerHTML = `${data.predictedAvailable} <small>available slots</small>`;
+  if(!lots.length){
+    list.innerHTML = '<div class="empty">No parking found in this area.<br>Try a larger radius.</div>';
+    setStatus(`No lots within ${(+$('radius').value/1000)} km.`);
+    return;
+  }
+  setStatus(`Found <b>${lots.length}</b> parking lot${lots.length>1?'s':''} nearby. Tap one to locate it on the map.`);
 
-                riskBadge.textContent = risk.text;
-                riskBadge.className = 'badge ' + risk.className;
+  lots.forEach(lot=>{
+    // marker
+    const m = L.circleMarker([lot.lat,lot.lng],{
+      radius:9,color:'#0b1220',weight:1.5,fillColor:riskColor(lot.riskLabel),fillOpacity:.95
+    }).addTo(lotLayer);
+    m.bindPopup(
+      `<div class="pop"><h4>${esc(lot.name)}</h4>`+
+      `<div class="pf"><b style="color:${riskColor(lot.riskLabel)}">${lot.predictedAvailable}</b> of ${lot.capacity} free (est.)</div>`+
+      `<div class="pf">${lot.distanceKm} km away</div>`+
+      `<a href="${dirLink(lot.lat,lot.lng)}" target="_blank">Directions →</a></div>`
+    );
+    m.on('click',()=>selectCard(lot.id));
+    markers[lot.id]=m;
 
-                occupancyPercent.textContent = occ.toFixed(1) + '%';
-                progressFill.style.width = occ + '%';
-                progressFill.className = 'progress-bar-fill';
-                if (occ >= 80) {
-                    progressFill.classList.add('danger');
-                } else if (occ >= 50) {
-                    progressFill.classList.add('warning');
-                }
+    // card
+    const occ = lot.occupancyPercent;
+    const card = document.createElement('div');
+    card.className='card'; card.id='card-'+CSS.escape(lot.id);
+    card.innerHTML =
+      `<div class="top">
+         <h3>${esc(lot.name)}</h3>
+         <span class="dist">${lot.distanceKm} km</span>
+       </div>
+       <div class="free">
+         <span class="n" style="color:${riskColor(lot.riskLabel)}">${lot.predictedAvailable}</span>
+         <span class="lbl">/ ${lot.capacity} spots free</span>
+         <span class="badge b-${riskClass(lot.riskLabel)}" style="margin-left:auto">${lot.riskLabel}</span>
+       </div>
+       <div class="bar"><i style="width:${occ}%;background:${riskColor(lot.riskLabel)}"></i></div>
+       <div class="meta">
+         <span>${occ}% full</span>
+         <span>~${lot.confidencePercent}% confidence</span>
+         ${lot.fee==='yes'?'<span>💰 paid</span>':lot.fee==='no'?'<span>🆓 free</span>':''}
+         ${lot.capacityEstimated?'<span class="est-tag">capacity est.</span>':''}
+         <a href="${dirLink(lot.lat,lot.lng)}" target="_blank">Directions →</a>
+       </div>`;
+    card.onclick = ()=>{ selectCard(lot.id); map.flyTo([lot.lat,lot.lng],17); markers[lot.id].openPopup(); };
+    list.appendChild(card);
+  });
+}
 
-                demandLabel.textContent = demand;
-                confidencePercent.textContent = data.confidencePercent.toFixed(1) + '%';
+function selectCard(id){
+  if(current){ const p=$('card-'+CSS.escape(current)); if(p) p.classList.remove('active'); }
+  current=id; const el=$('card-'+CSS.escape(id));
+  if(el){ el.classList.add('active'); el.scrollIntoView({block:'nearest',behavior:'smooth'}); }
+}
 
-                modelTableBody.innerHTML = '';
-                if (data.modelBreakdown && data.modelBreakdown.length > 0) {
-                    data.modelBreakdown.forEach(m => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `
-                            <td class="model-name">${m.modelName}</td>
-                            <td>${m.prediction}</td>
-                            <td>${m.confidence.toFixed(1)}%</td>
-                        `;
-                        modelTableBody.appendChild(tr);
-                    });
-                } else {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = '<td colspan="3" style="text-align:center; color:#5a6a7a;">No model breakdown available</td>';
-                    modelTableBody.appendChild(tr);
-                }
+// ---- data ----
+let lastPos=null;
+async function loadNearby(lat,lng){
+  lastPos={lat,lng};
+  setStatus('<span class="spin"></span>Finding real parking near you…');
+  const params = new URLSearchParams({
+    lat, lng, radius:$('radius').value, hour:$('hour').value, dayOfWeek:$('day').value
+  });
+  try{
+    const res = await fetch(`${API}/api/nearby?${params}`);
+    if(!res.ok){
+      const e = await res.json().catch(()=>({}));
+      throw new Error(e.detail || `server returned ${res.status}`);
+    }
+    render(await res.json());
+  }catch(err){
+    setStatus(`Couldn't load parking: ${err.message}.
+      <span class="link" id="retry">Retry</span>`, true);
+    const r=$('retry'); if(r) r.onclick=()=>loadNearby(lat,lng);
+  }
+}
 
-                resultCard.classList.add('active');
-            }
+// ---- geolocation + fallback ----
+function locate(){
+  setStatus('<span class="spin"></span>Requesting your location…');
+  if(!navigator.geolocation){ return fallback('Geolocation not supported by this browser.'); }
+  navigator.geolocation.getCurrentPosition(
+    pos=>{
+      const {latitude:lat, longitude:lng} = pos.coords;
+      if(!map) initMap(lat,lng); else { map.setView([lat,lng],15); setUser(lat,lng); }
+      loadNearby(lat,lng);
+    },
+    err=> fallback(err.code===1
+      ? 'Location permission denied. Search a place instead:'
+      : 'Could not get your location. Search a place instead:'),
+    {enableHighAccuracy:true, timeout:10000, maximumAge:60000}
+  );
+}
 
-            async function handlePredict() {
-                const data = getFormData();
-                const validationError = validateForm(data);
-                if (validationError) {
-                    showError(validationError);
-                    return;
-                }
+function fallback(msg){
+  if(!map){ initMap(20,0); map.setView([20,0],2); }
+  setStatus(`${msg}
+    <div style="margin-top:8px;display:flex;gap:8px">
+      <input id="place" placeholder="e.g. Connaught Place, Delhi" style="flex:1"/>
+      <button class="btn-ghost" id="go">Search</button>
+    </div>
+    <div style="margin-top:6px;font-size:12px">…or just click anywhere on the map.</div>`, true);
+  $('go').onclick = searchPlace;
+  $('place').addEventListener('keydown',e=>{ if(e.key==='Enter') searchPlace(); });
+  map.off('click').on('click', e=>{ map.setView(e.latlng,15); setUser(e.latlng.lat,e.latlng.lng); loadNearby(e.latlng.lat,e.latlng.lng); });
+}
 
-                setLoading(true);
+async function searchPlace(){
+  const q = $('place').value.trim(); if(!q) return;
+  setStatus('<span class="spin"></span>Looking up place…');
+  try{
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+    const j = await r.json();
+    if(!j.length){ setStatus('Place not found. Try another search.', true); return; }
+    const lat=+j[0].lat, lng=+j[0].lon;
+    map.setView([lat,lng],15); setUser(lat,lng); loadNearby(lat,lng);
+  }catch(e){ setStatus('Place search failed: '+e.message, true); }
+}
 
-                try {
-                    const response = await fetch('http://127.0.0.1:8000/api/predict', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(data)
-                    });
-
-                    if (!response.ok) {
-                        let errorText = `Server error: ${response.status}`;
-                        try {
-                            const errData = await response.json();
-                            if (errData.detail) errorText = errData.detail;
-                        } catch (e) {}
-                        throw new Error(errorText);
-                    }
-
-                    const result = await response.json();
-
-                    if (typeof result.predictedAvailable !== 'number' ||
-                        typeof result.occupancyPercent !== 'number' ||
-                        typeof result.confidencePercent !== 'number') {
-                        throw new Error('Invalid response format from server.');
-                    }
-
-                    if (!Array.isArray(result.modelBreakdown)) {
-                        result.modelBreakdown = [];
-                    }
-
-                    renderResult(result);
-                } catch (err) {
-                    showError(err.message || 'Failed to get prediction. Please try again.');
-                } finally {
-                    setLoading(false);
-                }
-            }
-
-            predictBtn.addEventListener('click', handlePredict);
-
-            document.querySelectorAll('input, select').forEach(el => {
-                el.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handlePredict();
-                    }
-                });
-            });
-        })();
-    </script>
+// ---- boot ----
+fillTimeControls(); updateForTimePill();
+$('refresh').onclick = ()=>{ if(lastPos) loadNearby(lastPos.lat,lastPos.lng); else locate(); };
+['radius','hour','day'].forEach(id=>$(id).addEventListener('change',()=>{ updateForTimePill(); if(lastPos) loadNearby(lastPos.lat,lastPos.lng); }));
+locate();
+</script>
 </body>
 </html>

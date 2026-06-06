@@ -3,9 +3,11 @@
 #include <cstring>
 #include <cstdlib>
 #include <thread>
+#include <atomic>
 #include <sstream>
 #include <fstream>
 #include <algorithm>
+#include <cmath>
 #include <nlohmann/json.hpp>
 
 #include "ai_utils.h"
@@ -30,6 +32,10 @@
 using json = nlohmann::json;
 
 namespace parking {
+
+// Forward declaration — getCorsOrigin() is defined further down but referenced
+// earlier in buildResponse().
+std::string getCorsOrigin();
 
 // ------------------------------------------------------------
 // Thread safety — maximum concurrent clients

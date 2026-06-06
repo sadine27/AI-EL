@@ -1,7 +1,7 @@
 // Edge case tests for decision tree model
 // Compile with: g++ -std=c++17 -I../include -I. test_decision_tree.cpp ../src/decision_tree.cpp ../src/ai_utils.cpp ../src/feature_extractor.cpp -o test_decision_tree
 
-#define DOCTEST_CONFIG_IMPLEMENT
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "decision_tree.h"
 #include "feature_extractor.h"
