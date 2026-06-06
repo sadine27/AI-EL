@@ -1,7 +1,7 @@
 // Edge case tests for instance-based learning (KNN)
 // Compile with: g++ -std=c++17 -I../include -I. test_instance_learning.cpp ../src/instance_learning.cpp ../src/ai_utils.cpp ../src/feature_extractor.cpp -o test_instance_learning
 
-#define DOCTEST_CONFIG_IMPLEMENT
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include "doctest.h"
 #include "instance_learning.h"
 #include "feature_extractor.h"

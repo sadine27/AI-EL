@@ -1,0 +1,47 @@
+name: smart-parking-cpp CI
+
+# Self-contained pipeline for the smart-parking-cpp subtree, with paths relative
+# to this directory so it works if smart-parking-cpp is ever split into its own
+# repository. For the current monorepo, the active pipeline is ../../.github/
+# workflows/ci.yml at the repository root (GitHub only runs root-level workflows).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  python-api:
+    name: Python API (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ../requirements.txt
+      - name: Run offline test suite
+        run: pytest -q --ignore=security_penetration_test.py
+
+  cpp-engine:
+    name: C++ engine (cmake + ctest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cpp-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DBUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

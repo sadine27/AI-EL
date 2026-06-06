@@ -1,0 +1,66 @@
+name: CI
+
+# Repo-root pipeline. GitHub Actions only runs workflows from <repo-root>/.github,
+# so this is the file that actually executes for the whole monorepo. It builds and
+# tests all three components: the Python API, the C++ engine, and the webapp.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  python-api:
+    name: Python API (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: smart-parking-cpp/python-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ../requirements.txt
+      - name: Run offline test suite
+        # The penetration-test module needs a live server; the unit/integration
+        # suite is fully offline and is the gate for every push/PR.
+        run: pytest -q --ignore=security_penetration_test.py
+
+  webapp:
+    name: Webapp backend (contract)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: webapp/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run predictor tests
+        run: pytest -q
+
+  cpp-engine:
+    name: C++ engine (cmake + ctest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: smart-parking-cpp/cpp-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DBUILD_TESTS=ON
+      - name: Build
+        run: cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

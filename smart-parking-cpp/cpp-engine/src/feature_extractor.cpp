@@ -140,6 +140,12 @@ FeatureVector buildFeatureVector(
     const std::vector<HistoricalRow>& historical,
     int hour, int dayOfWeek)
 {
+    // Clamp time inputs to valid calendar ranges so out-of-range callers
+    // (hour outside 0-23, day outside 0-6 i.e. Sun-Sat) can't poison the
+    // downstream demand/peak math or the historical lookup key.
+    hour = hour < 0 ? 0 : (hour > 23 ? 23 : hour);
+    dayOfWeek = dayOfWeek < 0 ? 0 : (dayOfWeek > 6 ? 6 : dayOfWeek);
+
     FeatureVector fv;
     fv.hour = hour;
     fv.dayOfWeek = dayOfWeek;
